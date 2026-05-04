@@ -106,10 +106,12 @@ function App() {
   const handleSignUp = async (email: string, password: string) => {
     try {
       await signUp({ email, password })
-      setError('Check your email to confirm your account!')
+      // Return success flag to trigger view switch in AuthForms
+      return { success: true, message: 'Account created! Please check your email to confirm your account before signing in.' }
     } catch (err) {
       const display = formatErrorForDisplay(err)
       setError(display.message)
+      return { success: false }
     }
   }
 
@@ -631,7 +633,7 @@ function AuthForms({
   onMagicLink
 }: { 
   onSignIn: (email: string, password: string) => void
-  onSignUp: (email: string, password: string) => void
+  onSignUp: (email: string, password: string) => Promise<{ success: boolean; message?: string }>
   onGoogleSignIn: () => void
   onGitHubSignIn: () => void
   onMagicLink: (email: string) => void
@@ -641,14 +643,19 @@ function AuthForms({
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [magicLinkSent, setMagicLinkSent] = useState(false)
+  const [signUpSuccess, setSignUpSuccess] = useState<string | null>(null)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (isMagicLink) {
       onMagicLink(email)
       setMagicLinkSent(true)
     } else if (isSignUp) {
-      onSignUp(email, password)
+      const result = await onSignUp(email, password)
+      if (result.success && result.message) {
+        setSignUpSuccess(result.message)
+        setIsSignUp(false) // Switch to login view
+      }
     } else {
       onSignIn(email, password)
     }
@@ -678,6 +685,21 @@ function AuthForms({
 
   return (
     <div className="bg-white p-8 rounded-lg shadow-md">
+      {/* Success Message after Sign Up */}
+      {signUpSuccess && !isSignUp && (
+        <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-start gap-3">
+          <div className="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+            <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <div>
+            <p className="font-semibold text-green-900">Success!</p>
+            <p className="text-sm text-green-700">{signUpSuccess}</p>
+          </div>
+        </div>
+      )}
+
       <h2 className="text-2xl font-bold text-gray-900 mb-6 text-center">
         {isMagicLink ? 'Sign In with Magic Link' : isSignUp ? 'Create Account' : 'Welcome Back'}
       </h2>
