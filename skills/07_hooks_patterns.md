@@ -1,136 +1,194 @@
-# 07 — React Hooks Patterns
+# Skill 07: Hooks Patterns
 
-This project's custom hooks live in `src/hooks/`.
-Use these instead of writing raw Supabase calls in components.
+## Two Hook Systems
 
----
+This template provides TWO hook systems for data access. Both are part of the TEMPLATE core.
 
-## 🪝 `useAuth` — Authentication State
+### System 1: Smart Query Hooks (RECOMMENDED)
+Location: `src/lib/query/hooks.ts`
+Technology: TanStack Query (React Query)
+Features: Automatic caching, background refetching, optimistic updates, realtime cache sync
 
-**File:** `src/hooks/useAuth.tsx`
+### System 2: Generic Hooks (Alternative)
+Location: `src/hooks/useSupabase.ts` + `src/hooks/useAuth.tsx`
+Technology: React useState + useEffect
+Features: Manual state management, flexible for custom patterns
 
-```tsx
-import { useAuth } from '@/hooks/useAuth';
+## Smart Query Hooks (src/lib/query/hooks.ts)
 
-const {
-  user,         // The current Supabase User object (null if not logged in)
-  session,      // The full session object
-  loading,      // true while auth state is initializing
-  signOut,      // function to sign out
-} = useAuth();
+### Pattern: Query Hook
+```typescript
+export function usePersonalTodos(userId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.todos.personal(userId || ''),
+    queryFn: async () => {
+      if (!userId) return []
+      return fetchAll<Todo>('todos', {
+        filter: (q) => q.eq('user_id', userId).is('team_id', null),
+        order: { column: 'created_at', ascending: false },
+      })
+    },
+    enabled: !!userId,  // Only fetch when userId exists
+  })
+}
 ```
 
-**When to use:** Any component that needs to know if the user is logged in, or needs the `user.id`.
-
----
-
-## 🪝 `useLiveQuery` — Data + Realtime Together
-
-**File:** `src/hooks/useSupabase.ts`
-
-```tsx
-import { useLiveQuery } from '@/hooks/useSupabase';
-
-const { data, loading, error } = useLiveQuery('tasks', {
-  filters: { board_id: boardId },  // optional WHERE filters
-  orderBy: 'created_at',           // optional ORDER BY
-});
+**Usage:**
+```typescript
+const { data = [], isLoading, error, refetch } = usePersonalTodos(user?.id)
 ```
 
-**When to use:** Any list that should update in real-time (tasks, messages, boards).
+### Pattern: Mutation Hook
+```typescript
+export function useCreateTodo() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ title, userId, teamId }) => {
+      return insertOne<Todo>('todos', {
+        title, completed: false, user_id: userId, team_id: teamId || null,
+      })
+    },
+    onSuccess: (newTodo) => {
+      // Optimistically update cache
+      if (newTodo.team_id) {
+        queryClient.setQueryData(queryKeys.todos.team(newTodo.team_id), (old) =>
+          old ? [newTodo, ...old] : [newTodo]
+        )
+      } else {
+        queryClient.setQueryData(queryKeys.todos.personal(newTodo.user_id), (old) =>
+          old ? [newTodo, ...old] : [newTodo]
+        )
+      }
+    },
+  })
+}
+```
 
----
+**Usage:**
+```typescript
+const createTodo = useCreateTodo()
+await createTodo.mutateAsync({ title: 'New task', userId: user.id })
+// Cache is automatically updated, UI re-renders instantly
+```
 
-## 🪝 Pattern: Build a Custom Hook for a Feature
-
-When you have complex fetching logic, extract it into a hook.
-
-```tsx
-// src/hooks/useBoardTasks.ts
-import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/database/client';
-
-export function useBoardTasks(boardId: string) {
-  const [tasks, setTasks] = useState([]);
-  const [loading, setLoading] = useState(true);
+### Pattern: Realtime Hook
+```typescript
+export function usePersonalTodosRealtime(userId: string | undefined) {
+  const queryClient = useQueryClient()
+  const channelRef = useRef<RealtimeChannel | null>(null)
 
   useEffect(() => {
-    if (!boardId) return;
-
-    // Fetch initial data
-    supabase
-      .from('tasks')
-      .select('*')
-      .eq('board_id', boardId)
-      .then(({ data }) => {
-        setTasks(data ?? []);
-        setLoading(false);
-      });
-
-    // Subscribe to changes
-    const channel = supabase
-      .channel(`tasks-${boardId}`)
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'tasks',
-        filter: `board_id=eq.${boardId}`,
-      }, (payload) => {
-        if (payload.eventType === 'INSERT') setTasks(p => [...p, payload.new]);
-        if (payload.eventType === 'UPDATE') setTasks(p => p.map(t => t.id === payload.new.id ? payload.new : t));
-        if (payload.eventType === 'DELETE') setTasks(p => p.filter(t => t.id !== payload.old.id));
-      })
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
-  }, [boardId]);
-
-  return { tasks, loading };
+    if (!userId) return
+    const channel = subscribeToTable<Todo>(
+      { table: 'todos', filter: `user_id=eq.${userId}` },
+      {
+        onInsert: (data) => {
+          if (!data.team_id) {
+            queryClient.setQueryData(queryKeys.todos.personal(userId), (old) =>
+              old ? [data, ...old] : [data]
+            )
+          }
+        },
+        onUpdate: (data) => { /* update cache */ },
+        onDelete: (data) => { /* remove from cache */ },
+      }
+    )
+    channelRef.current = channel
+    return () => { if (channelRef.current) unsubscribe(channelRef.current) }
+  }, [userId, queryClient])
 }
 ```
 
----
-
-## 🪝 Pattern: Mutation Hook (with loading/error state)
-
-```tsx
-// src/hooks/useCreateTask.ts
-import { useState } from 'react';
-import { insertOne } from '@/lib/database';
-
-export function useCreateTask() {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function createTask(taskData: object) {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await insertOne('tasks', taskData);
-      return result;
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return { createTask, loading, error };
-}
+**Usage:**
+```typescript
+// Just call it in your component - it manages its own lifecycle
+usePersonalTodosRealtime(user?.id)
 ```
 
-Usage:
-```tsx
-const { createTask, loading } = useCreateTask();
-<button onClick={() => createTask({ title: 'New Task', board_id: id })} disabled={loading}>
-  Add Task
-</button>
+## Generic Hooks (src/hooks/useSupabase.ts)
+
+### useFetch<T>(table, options?)
+useState-based data fetching with manual refetch.
+```typescript
+const { data, loading, error, refetch, setData } = useFetch<Todo>('todos', {
+  filter: (q) => q.eq('user_id', userId),
+  order: { column: 'created_at', ascending: false },
+})
 ```
 
----
+### useLiveQuery<T>(table, options?)
+Combines useFetch + useRealtime for automatic live data.
+```typescript
+const { data, loading, error, refetch } = useLiveQuery<Todo>('todos', {
+  filter: (q) => q.eq('user_id', userId),
+})
+// Data auto-updates when database changes
+```
 
-## ⚠️ Gotchas
+### usePagination<T>(table, options?)
+Paginated data with load-more navigation.
+```typescript
+const { data, loading, page, totalPages, nextPage, prevPage, goToPage, refresh } = usePagination<Post>('posts', {
+  pageSize: 10,
+  order: { column: 'created_at', ascending: false },
+})
+```
 
-- Hooks must be called at the **top level** of a component, never inside conditions or loops.
-- Always include cleanup (`return () => ...`) in `useEffect` when subscribing to channels.
-- `useLiveQuery` already handles cleanup internally — don't double-subscribe.
+### useOptimisticUpdate<T>(table, initialData?)
+Optimistic UI with rollback on failure.
+```typescript
+const { data, optimisticInsert, optimisticUpdate, optimisticDelete } = useOptimisticUpdate<Todo>('todos', initialTodos)
+
+await optimisticInsert(
+  { title: 'New task' },
+  () => insertOne('todos', { title: 'New task', user_id: userId })
+)
+// If server fails, UI rolls back automatically
+```
+
+### useSearch<T>(table, column, options?)
+Debounced search (default 300ms delay).
+```typescript
+const { query, setQuery, data, loading, error } = useSearch<Todo>('todos', 'title', { limit: 20 })
+// Type in search box → 300ms delay → query executes
+```
+
+## Auth Hooks (src/hooks/useAuth.tsx)
+
+### AuthProvider + useAuth()
+Context-based auth state management.
+```typescript
+// Wrap your app
+<AuthProvider>
+  <App />
+</AuthProvider>
+
+// Use anywhere
+const { user, loading, signIn, signOut, isAuthenticated } = useAuth()
+```
+
+### useRequireAuth(redirectTo?)
+Protects routes - redirects if not authenticated.
+```typescript
+const { isAuthenticated, loading } = useRequireAuth('/login')
+if (loading) return <Loading />
+if (!isAuthenticated) return null // Redirect happens in hook
+```
+
+### useSession()
+Session management with expiration warnings.
+```typescript
+const { session, user, isExpiring, refresh, expiresAt } = useSession()
+// isExpiring becomes true when session expires within 5 minutes
+```
+
+## When to Use Which System
+
+| Use Case | Smart Query Hooks | Generic Hooks |
+|----------|------------------|---------------|
+| New project | ✅ Primary choice | Alternative |
+| Complex caching | ✅ Built-in | Manual |
+| Realtime sync | ✅ Direct cache update | useLiveQuery |
+| Optimistic updates | ✅ Via mutations | useOptimisticUpdate |
+| Simple one-off fetch | Overkill | useFetch |
+| Custom state logic | Possible | More flexible |

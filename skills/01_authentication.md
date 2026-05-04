@@ -1,113 +1,68 @@
-# 01 — Authentication
+# Skill 01: Authentication
 
-**Source files:**
-- `src/hooks/useAuth.tsx` — main hook
-- `src/lib/auth/operations.ts` — raw Supabase calls
-- `src/lib/auth/client.ts` — Supabase client instance
-- `src/lib/auth/mfa.ts` — Multi-Factor Auth helpers
-- `src/lib/auth/admin.ts` — Admin user management
+## Template Core Files
+- `src/lib/auth/client.ts` - Supabase client initialization
+- `src/lib/auth/operations.ts` - All auth operations
+- `src/lib/auth/mfa.ts` - Multi-factor authentication
+- `src/lib/auth/admin.ts` - Admin operations (server-side only)
+- `src/lib/auth/index.ts` - Barrel exports
+- `src/hooks/useAuth.tsx` - Auth context and hooks
+- `src/providers/SupabaseProvider.tsx` - Auth state provider
 
----
-
-## 🔑 Pattern: Get the current user
-
-```tsx
-import { useAuth } from '@/hooks/useAuth';
-
-function MyComponent() {
-  const { user, loading } = useAuth();
-
-  if (loading) return <Spinner />;
-  if (!user) return <Navigate to="/login" />;
-
-  return <p>Hello, {user.email}</p>;
-}
+## Client Setup (`client.ts`)
+The Supabase client is configured once and shared across all modules:
+```typescript
+const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    autoRefreshToken: true,    // Auto-refreshes tokens before expiry
+    persistSession: true,       // Persists to localStorage
+    detectSessionInUrl: true,   // Detects OAuth callback sessions
+  },
+})
 ```
 
----
+## Authentication Flow
+1. **Sign Up**: `signUp({ email, password, metadata? })` → validates email + password strength → creates account
+2. **Sign In**: `signInWithPassword({ email, password })` → validates credentials → returns user + session
+3. **Magic Link**: `signInWithOTP(email)` → sends email → user clicks link → auto signs in
+4. **OAuth**: `signInWithOAuth(provider)` → redirects to provider → callback exchanges code for session
+5. **Sign Out**: `signOut()` → clears session → triggers SIGNED_OUT event
 
-## 🔑 Pattern: Sign Up
+## Session Management
+- `getSession()` - Gets cached session from storage
+- `getUser()` - Fetches fresh user from server
+- `isAuthenticated()` - Boolean check
+- `refreshSession()` - Force refresh tokens
+- `exchangeCodeForSession(code)` - OAuth callback handler
 
-```ts
-import { signUp } from '@/lib/auth/operations';
+## MFA Flow
+1. `enrollTOTP()` → returns QR code + secret for authenticator app
+2. User scans QR in authenticator app
+3. `challengeMFA(factorId)` → starts verification challenge
+4. `verifyMFA(factorId, code)` → verifies TOTP code
+5. `listMFAFactors()` → shows enrolled factors
+6. `unenrollMFA(factorId)` → removes factor
 
-const { data, error } = await signUp(email, password);
-if (error) console.error(error.message);
+## Auth Context (`useAuth.tsx`)
+The `AuthProvider` component wraps your app and provides:
+- `user`, `session` - Current auth state
+- `loading`, `error` - Operation state
+- `isAuthenticated` - Boolean convenience
+- `signIn()`, `signUp()`, `signOut()` - Core operations
+- `signInWithMagicLink()`, `signInWithProvider()` - Alternative auth
+- `resetPassword()`, `updateUser()`, `resendConfirmation()` - Account management
+- `refreshUser()`, `clearError()` - Utilities
+
+## Protected Routes
+```typescript
+const { isAuthenticated, loading } = useRequireAuth('/login')
 ```
 
----
-
-## 🔑 Pattern: Sign In with Email/Password
-
-```ts
-import { signIn } from '@/lib/auth/operations';
-
-const { data, error } = await signIn(email, password);
-```
-
----
-
-## 🔑 Pattern: Sign Out
-
-```tsx
-const { signOut } = useAuth();
-<button onClick={signOut}>Sign Out</button>
-```
-
----
-
-## 🔑 Pattern: OAuth (Google, GitHub, etc.)
-
-```ts
-import { supabase } from '@/lib/auth/client';
-
-await supabase.auth.signInWithOAuth({
-  provider: 'google',
-  options: { redirectTo: window.location.origin },
-});
-```
-
----
-
-## 🔑 Pattern: Listen to Auth State Changes
-
-```ts
-import { supabase } from '@/lib/auth/client';
-
-supabase.auth.onAuthStateChange((event, session) => {
-  if (event === 'SIGNED_IN') console.log('User signed in', session?.user);
-  if (event === 'SIGNED_OUT') console.log('User signed out');
-});
-```
-
----
-
-## 🔑 Pattern: Protect a Route
-
-Wrap the route with a check inside the component:
-```tsx
-const { user, loading } = useAuth();
-if (!user && !loading) return <Navigate to="/login" replace />;
-```
-
----
-
-## 🔑 Pattern: MFA (Multi-Factor Auth)
-
-```ts
-import { enrollMFA, verifyMFA } from '@/lib/auth/mfa';
-
-// Step 1: Enroll (generates QR code)
-const { data } = await enrollMFA();
-
-// Step 2: Verify the code from authenticator app
-await verifyMFA(totpCode);
-```
-
----
-
-## ⚠️ Gotchas
-
-- `user` from `useAuth` is `null` on first render — always check `loading` first.
-- After sign-up, Supabase sends a **confirmation email** — the session won't exist until the user clicks the link (unless email confirmation is disabled in the Supabase dashboard).
-- OAuth redirects: the `redirectTo` URL must be added to **Allowed Redirect URLs** in Supabase Auth settings.
+## Admin Operations (Server-Side Only)
+⚠️ These require the service role key and should NEVER run in the browser:
+- `createUser()` - Create users programmatically
+- `deleteUser()` - Remove users
+- `listUsers()` - Paginated user list
+- `updateUserById()` - Modify user attributes
+- `inviteUserByEmail()` - Send invite emails
+- `generateLink()` - Generate auth links (signup, invite, magiclink, recovery, email_change)

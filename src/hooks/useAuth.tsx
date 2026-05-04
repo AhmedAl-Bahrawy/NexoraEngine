@@ -32,7 +32,7 @@ interface AuthContextType {
   signInWithProvider: (provider: 'google' | 'github' | 'gitlab' | 'azure') => Promise<void>
   signOut: () => Promise<void>
   resetPassword: (email: string) => Promise<void>
-  updateUser: (attributes: { email?: string; password?: string; data?: object }) => Promise<void>
+  updateUser: (attributes: { email?: string; password?: string; data?: Record<string, unknown> }) => Promise<void>
   resendConfirmation: (email: string) => Promise<void>
   refreshUser: () => Promise<void>
   clearError: () => void
@@ -222,12 +222,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [])
 
   // Update user
-  const handleUpdateUser = useCallback(async (attributes: { email?: string; password?: string; data?: object }) => {
+  const handleUpdateUser = useCallback(async (attributes: { email?: string; password?: string; data?: Record<string, unknown> }) => {
     setLoading(true)
     setError(null)
 
     try {
-      const { user: updatedUser } = await supabaseUpdateUser(attributes)
+      const updatedUser = await supabaseUpdateUser(attributes)
       setUser(updatedUser)
     } catch (err) {
       setError(err as AuthError)
@@ -434,7 +434,7 @@ export function useSession() {
 
   const refresh = useCallback(async () => {
     try {
-      const { session: newSession } = await refreshSession()
+      const newSession = await refreshSession()
       setIsExpiring(false)
       return newSession
     } catch (err) {

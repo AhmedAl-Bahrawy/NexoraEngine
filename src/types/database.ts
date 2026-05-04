@@ -1,6 +1,14 @@
 // Database schema types - update this based on your actual Supabase schema
 // You can generate these using: supabase gen types typescript --project-id your-project-ref
 
+// Generic database row type for legacy compatibility
+export interface DbRow<T = Record<string, unknown>> {
+  id: string
+  created_at?: string
+  updated_at?: string
+  [key: string]: T[keyof T] | string | undefined
+}
+
 export interface Database {
   public: {
     Tables: {

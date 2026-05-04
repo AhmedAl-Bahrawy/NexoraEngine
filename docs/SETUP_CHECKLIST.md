@@ -1,95 +1,129 @@
-# Supabase Template Setup Checklist
+# Setup Checklist
 
-## Pre-Setup
+## Prerequisites
 - [ ] Node.js 18+ installed
-- [ ] Supabase account created (https://supabase.com)
-- [ ] New Supabase project created
+- [ ] npm/pnpm/yarn installed
+- [ ] Supabase CLI installed (`npm i -g supabase`)
+- [ ] Supabase project created at https://supabase.com
 
-## Environment Setup
-- [ ] Copy `.env.example` to `.env.local`
-- [ ] Get Project URL from Supabase Dashboard (Settings > API)
-- [ ] Get Anon Key from Supabase Dashboard (Settings > API)
-- [ ] Add credentials to `.env.local`
+## Initial Setup
 
-## Database Setup
-- [ ] Open Supabase SQL Editor
-- [ ] Run the following SQL:
-
-```sql
--- Enable UUID extension
-create extension if not exists "uuid-ossp";
-
--- Create todos table for demo
-create table todos (
-  id uuid default gen_random_uuid() primary key,
-  user_id uuid references auth.users default auth.uid(),
-  title text not null,
-  completed boolean default false,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
-);
-
--- Enable Row Level Security
-alter table todos enable row level security;
-
--- Create policies
-CREATE POLICY "Enable read access for all users" ON todos
-  FOR SELECT USING (true);
-
-CREATE POLICY "Enable insert for authenticated users" ON todos
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Enable update for users based on user_id" ON todos
-  FOR UPDATE USING (auth.uid() = user_id);
-
-CREATE POLICY "Enable delete for users based on user_id" ON todos
-  FOR DELETE USING (auth.uid() = user_id);
+### 1. Clone & Install
+```bash
+git clone <repo-url>
+cd SupabaseFullLearn
+npm install
 ```
 
-## Storage Setup
-- [ ] Go to Supabase Dashboard → Storage
-- [ ] Create bucket named `files`
-- [ ] Set bucket to public
-- [ ] Add RLS policy for uploads:
-
-```sql
-CREATE POLICY "Authenticated users can upload files" ON storage.objects
-  FOR INSERT TO authenticated WITH CHECK (bucket_id = 'files');
+### 2. Environment Variables
+```bash
+cp .env.example .env
+# Edit .env with your Supabase credentials
 ```
 
-## Development
-- [ ] Run `npm install`
-- [ ] Run `npm run dev`
-- [ ] Open http://localhost:5173
-- [ ] Test authentication
-- [ ] Test database operations (add todos)
-- [ ] Test file upload
+Get your credentials from: Supabase Dashboard → Project Settings → API
+- `VITE_SUPABASE_URL` → Project URL
+- `VITE_SUPABASE_ANON_KEY` → anon/public key
 
-## Customization
-- [ ] Update app name in `App.tsx`
-- [ ] Customize colors/styles
-- [ ] Add your logo
-- [ ] Replace demo features with your own
+### 3. Apply Migrations
+```bash
+# Link to your project
+supabase link --project-ref YOUR_PROJECT_REF
 
-## Production
-- [ ] Build: `npm run build`
-- [ ] Test production build: `npm run preview`
-- [ ] Deploy to hosting (Vercel, Netlify, etc.)
-- [ ] Add production env vars to hosting platform
+# Push migrations
+supabase db push
 
-## Post-Deploy
-- [ ] Verify auth works in production
-- [ ] Test database operations
-- [ ] Test file uploads
-- [ ] Monitor Supabase dashboard for usage
-- [ ] Set up database backups
+# Verify
+supabase migration list
+```
 
-## Optional Enhancements
-- [ ] Add email templates in Supabase
-- [ ] Configure OAuth providers
-- [ ] Set up custom domains
-- [ ] Add rate limiting
-- [ ] Configure MFA for admin accounts
+### 4. Start Development
+```bash
+npm run dev
+```
 
----
+## Project Configuration
 
-✅ **Done! Your Supabase app is ready.**
+### Auth Providers
+Enable in Supabase Dashboard → Authentication → Providers:
+- [ ] Email/Password (enabled by default)
+- [ ] Google (requires OAuth credentials)
+- [ ] GitHub (requires OAuth credentials)
+- [ ] Any other providers you need
+
+### Storage Buckets
+Create in Supabase Dashboard → Storage:
+- [ ] `test` bucket (created by migration 0002)
+- [ ] Any additional buckets your project needs
+
+Set bucket policies:
+- [ ] Public buckets: Allow public read
+- [ ] Private buckets: RLS only
+
+### Realtime
+Verify realtime is enabled on tables:
+```sql
+-- Check publication
+SELECT * FROM pg_publication_tables;
+```
+
+Tables in the publication:
+- [ ] todos (migration 0001)
+- [ ] storage_files (migration 0002)
+- [ ] teams (migration 0003)
+- [ ] team_members (migration 0003)
+
+## Verification
+
+### Test Authentication
+1. [ ] Sign up with email/password
+2. [ ] Verify email confirmation (if enabled)
+3. [ ] Sign in with credentials
+4. [ ] Sign out
+
+### Test Database
+1. [ ] Create a personal todo
+2. [ ] Verify it appears in the list
+3. [ ] Toggle completed
+4. [ ] Delete the todo
+
+### Test Teams
+1. [ ] Create a team
+2. [ ] Verify team appears in sidebar
+3. [ ] Create a team todo
+4. [ ] Switch to personal workspace
+5. [ ] Verify team todo is not visible
+
+### Test Storage
+1. [ ] Upload a file
+2. [ ] Verify it appears in file list
+3. [ ] Download the file
+4. [ ] Delete the file
+
+### Test Realtime
+1. [ ] Open app in 2 browser tabs
+2. [ ] Sign in with same account
+3. [ ] Create a todo in tab 1
+4. [ ] Verify it appears instantly in tab 2
+5. [ ] Toggle/delete in tab 1
+6. [ ] Verify change in tab 2
+
+## Production Deployment
+
+### Build
+```bash
+npm run build
+```
+
+### Environment Variables for Production
+Set in your hosting platform:
+- [ ] `VITE_SUPABASE_URL`
+- [ ] `VITE_SUPABASE_ANON_KEY`
+
+### Security Checklist
+- [ ] RLS enabled on all tables
+- [ ] Service role key NOT exposed in client
+- [ ] CORS configured for your domain
+- [ ] Email confirmation enabled (if needed)
+- [ ] Rate limiting configured (if needed)
+- [ ] Storage bucket policies set correctly

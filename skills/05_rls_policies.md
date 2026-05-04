@@ -1,132 +1,82 @@
-# 05 — Row Level Security (RLS) Policies
+# Skill 05: RLS Policies
 
-RLS is Supabase's permission system. Every table should have it enabled.
-This file documents the patterns used **in this project** and how to fix common errors.
+## What is RLS
+Row-Level Security (RLS) is PostgreSQL's row-level access control. Every query goes through RLS policies that determine which rows a user can see or modify. RLS is the security foundation of this template.
 
----
+## RLS in This Template
 
-## 🛡️ The Golden Rules
+### Todos Table
+- **Personal todos**: `auth.uid() = user_id` - Users see only their own personal todos
+- **Team todos**: User must be a member of the team (`team_members` table check)
+- **Select Policy**: `(auth.uid() = user_id AND team_id IS NULL) OR EXISTS (SELECT 1 FROM team_members WHERE team_members.team_id = todos.team_id AND team_members.user_id = auth.uid())`
+- **Insert Policy**: Same as select - must own the personal todo or be a team member
+- **Update Policy**: Same as select
+- **Delete Policy**: Same as select
 
-1. **Always enable RLS** on every table you create.
-2. **"No rows returned" with no error = RLS is blocking you** (not a code bug).
-3. **403 Forbidden on INSERT/UPDATE = missing RLS policy** for that operation.
-4. **Test policies in Supabase Dashboard → SQL Editor** before writing code.
+### Teams Table
+- **Select**: User must be a member via team_members
+- **Insert**: Any authenticated user can create a team
+- **Update**: Only team owner (`created_by = auth.uid()`)
+- **Delete**: Only team owner
 
----
+### Team Members Table
+- **Select**: User must be a member of the team
+- **Insert**: Any authenticated user can join (or be added by team member)
+- **Update**: Team owner or admin can change roles
+- **Delete**: User can remove themselves, or team owner/admin can remove others
 
-## 🛡️ Pattern: Basic "Users own their rows"
+### Storage Files Table
+- **Personal files**: `auth.uid() = user_id AND team_id IS NULL`
+- **Team files**: User must be a member of the team
+- **Select**: `(auth.uid() = user_id AND team_id IS NULL) OR EXISTS (SELECT 1 FROM team_members WHERE team_members.team_id = storage_files.team_id AND team_members.user_id = auth.uid())`
+- **Insert/Update/Delete**: Same as select
 
+## RLS + Smart Queries
+The smart query layer (`src/lib/query/`) automatically respects RLS because:
+1. All queries use the authenticated Supabase client
+2. RLS is enforced at the database level
+3. No data bypasses RLS - even `fetchAll()` is filtered
+
+## Realtime + RLS
+Realtime subscriptions also respect RLS. If a user subscribes to a table, they only receive events for rows they have SELECT permission on.
+
+## Testing RLS
+To verify RLS works:
+1. Create two user accounts
+2. User A creates a personal todo
+3. User B queries todos - should NOT see User A's todo
+4. Both users join a team
+5. User A creates a team todo
+6. User B queries team todos - SHOULD see it
+
+## Common RLS Patterns
+
+### Personal Data
 ```sql
--- Users can only see their own rows
-CREATE POLICY "Users see own rows"
-  ON tasks FOR SELECT
-  USING (auth.uid() = user_id);
-
--- Users can only insert rows for themselves
-CREATE POLICY "Users insert own rows"
-  ON tasks FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
-
--- Users can only update their own rows
-CREATE POLICY "Users update own rows"
-  ON tasks FOR UPDATE
-  USING (auth.uid() = user_id);
-
--- Users can only delete their own rows
-CREATE POLICY "Users delete own rows"
-  ON tasks FOR DELETE
-  USING (auth.uid() = user_id);
+CREATE POLICY "Users can see own data" ON todos
+  FOR SELECT USING (auth.uid() = user_id);
 ```
 
----
-
-## 🛡️ Pattern: Team-based Access
-
+### Team Data
 ```sql
--- A user can see spaces they own OR spaces in teams they belong to
-CREATE POLICY "Users see own or team spaces"
-  ON spaces FOR SELECT
-  USING (
-    auth.uid() = owner_id
-    OR
+CREATE POLICY "Team members can see team data" ON todos
+  FOR SELECT USING (
     EXISTS (
       SELECT 1 FROM team_members
-      WHERE team_members.team_id = spaces.team_id
+      WHERE team_members.team_id = todos.team_id
       AND team_members.user_id = auth.uid()
     )
   );
 ```
 
----
-
-## 🛡️ Pattern: Public Read, Authenticated Write
-
+### Owner-Only Write
 ```sql
--- Anyone can read
-CREATE POLICY "Public read"
-  ON posts FOR SELECT USING (true);
-
--- Only authenticated users can insert
-CREATE POLICY "Auth write"
-  ON posts FOR INSERT
-  WITH CHECK (auth.uid() IS NOT NULL);
+CREATE POLICY "Only owner can update" ON teams
+  FOR UPDATE USING (auth.uid() = created_by);
 ```
 
----
-
-## 🛡️ Pattern: Allow Personal + Team ownership (used in this project)
-
-This pattern was added to fix the 403 on `spaces` (see conversation 994b3ff9):
-
-```sql
-CREATE POLICY "Allow space creation"
-  ON spaces FOR INSERT
-  WITH CHECK (
-    auth.uid() = owner_id
-  );
-
-CREATE POLICY "Allow space access"
-  ON spaces FOR SELECT
-  USING (
-    auth.uid() = owner_id
-    OR team_id IN (
-      SELECT team_id FROM team_members WHERE user_id = auth.uid()
-    )
-  );
-```
-
----
-
-## 🔧 How to Add or Fix a Policy
-
-1. Go to **Supabase Dashboard → Database → Row Level Security**.
-2. Find your table.
-3. Click **"New Policy"** → Use a template or write SQL manually.
-4. Test with the SQL Editor:
-   ```sql
-   -- Simulate a user's perspective:
-   SET LOCAL role = authenticated;
-   SET LOCAL request.jwt.claims = '{"sub": "your-user-uuid"}';
-   SELECT * FROM spaces;
-   ```
-
----
-
-## 🔧 Quick Fix: Temporarily Disable RLS (DEVELOPMENT ONLY)
-
-```sql
--- ⚠️ NEVER do this in production
-ALTER TABLE tasks DISABLE ROW LEVEL SECURITY;
-```
-
----
-
-## ⚠️ Gotchas
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| `[]` data, no error | RLS SELECT policy missing or wrong | Add/fix SELECT policy |
-| `403 Forbidden` on INSERT | RLS INSERT policy missing | Add INSERT policy with `WITH CHECK` |
-| `403 Forbidden` on UPDATE | RLS UPDATE policy missing | Add UPDATE policy with `USING` |
-| Data visible to all users | No RLS or `USING (true)` policy | Add `USING (auth.uid() = owner_id)` |
-| Service role bypasses RLS | Using service key instead of anon key | Use anon key for client-side code |
+## Important Notes
+- RLS is enabled by default on tables created via the Supabase dashboard
+- Tables created via migrations need `ALTER TABLE table ENABLE ROW LEVEL SECURITY;`
+- `service_role` key bypasses RLS - NEVER expose it in client code
+- Super admin role can bypass RLS - use carefully

@@ -203,7 +203,7 @@ export function useDelete(table: string) {
 }
 
 // Hook for realtime subscriptions
-export function useRealtime<T>(
+export function useRealtime<T extends Record<string, any>>(
   table: string,
   callback: (change: RealtimeChange<T>) => void,
   filter?: { event: 'INSERT' | 'UPDATE' | 'DELETE' | '*'; filter?: string }

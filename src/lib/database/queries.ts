@@ -15,6 +15,7 @@ export interface QueryOptions {
   order?: { column: string; ascending?: boolean }
   limit?: number
   offset?: number
+  single?: boolean
 }
 
 export interface PaginatedQueryOptions extends QueryOptions {

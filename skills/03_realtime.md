@@ -1,110 +1,132 @@
-# 03 — Realtime (Live Subscriptions)
+# Skill 03: Realtime Subscriptions
 
-**Source files:**
-- `src/lib/database/realtime.ts` — raw channel subscriptions
-- `src/hooks/useSupabase.ts` — `useLiveQuery` hook
+## Template Core Files
+- `src/lib/database/realtime.ts` - Realtime subscription utilities
+- `src/lib/database/teams.ts` - Team-specific realtime (subscribeToTeam)
 
----
+## Realtime Types
 
-## ⚡ Pattern: useLiveQuery (Recommended)
+### RealtimeEvent
+`'INSERT' | 'UPDATE' | 'DELETE' | '*'` - The type of database change to listen for.
 
-Use this hook for any list that should update automatically without a page refresh.
-
-```tsx
-import { useLiveQuery } from '@/hooks/useSupabase';
-
-function TaskList({ boardId }: { boardId: string }) {
-  const { data: tasks, loading } = useLiveQuery('tasks', {
-    filters: { board_id: boardId },
-  });
-
-  if (loading) return <Spinner />;
-  return <ul>{tasks.map(t => <li key={t.id}>{t.title}</li>)}</ul>;
+### RealtimeChange<T>
+```typescript
+interface RealtimeChange<T> {
+  eventType: 'INSERT' | 'UPDATE' | 'DELETE'
+  new: T | null    // Present for INSERT/UPDATE
+  old: T | null    // Present for DELETE/UPDATE
 }
 ```
 
----
+### SubscriptionConfig
+```typescript
+interface SubscriptionConfig {
+  table: string       // Table to monitor
+  event?: RealtimeEvent  // Which events (default: '*')
+  filter?: string     // Row-level filter (e.g., 'user_id=eq.abc')
+  schema?: string     // Database schema (default: 'public')
+}
+```
 
-## ⚡ Pattern: Manual Channel Subscription
+### SubscriptionCallbacks<T>
+```typescript
+interface SubscriptionCallbacks<T> {
+  onInsert?: (data: T) => void
+  onUpdate?: (data: T) => void
+  onDelete?: (data: T) => void
+  onAll?: (change: RealtimeChange<T>) => void
+  onError?: (error: Error) => void
+}
+```
 
-For fine-grained control (e.g. only listen to INSERT events):
+## subscribeToTable<T>(config, callbacks)
+Subscribes to postgres_changes events on a table. Returns a RealtimeChannel for cleanup.
+```typescript
+const channel = subscribeToTable<Todo>(
+  { table: 'todos', filter: `user_id=eq.${userId}` },
+  {
+    onInsert: (data) => console.log('New todo:', data),
+    onUpdate: (data) => console.log('Updated todo:', data),
+    onDelete: (data) => console.log('Deleted todo:', data),
+  }
+)
 
-```ts
-import { supabase } from '@/lib/database/client';
+// Cleanup
+await supabase.removeChannel(channel)
+```
 
-const channel = supabase
-  .channel('tasks-changes')
-  .on(
-    'postgres_changes',
-    { event: 'INSERT', schema: 'public', table: 'tasks' },
-    (payload) => {
-      console.log('New task:', payload.new);
-      setTasks(prev => [...prev, payload.new]);
-    }
+## useSubscription<T>(config, callbacks, options?)
+React-friendly wrapper that returns a cleanup function for useEffect.
+```typescript
+useEffect(() => {
+  const cleanup = useSubscription<Todo>(
+    { table: 'todos', filter: `user_id=eq.${userId}` },
+    { onInsert: handleNewTodo }
   )
-  .subscribe();
-
-// IMPORTANT: Clean up when component unmounts
-return () => { supabase.removeChannel(channel); };
+  return cleanup
+}, [userId])
 ```
 
----
+## createBroadcastChannel(name)
+Creates a cross-tab communication channel using Supabase broadcast.
+```typescript
+const channel = createBroadcastChannel('my-app-events')
 
-## ⚡ Pattern: Listen to ALL changes (INSERT + UPDATE + DELETE)
+// Listen
+channel.subscribe((payload) => {
+  console.log(payload.event, payload.payload)
+})
 
-```ts
-const channel = supabase
-  .channel('all-tasks')
-  .on(
-    'postgres_changes',
-    { event: '*', schema: 'public', table: 'tasks' },
-    (payload) => {
-      if (payload.eventType === 'INSERT') { /* add item */ }
-      if (payload.eventType === 'UPDATE') { /* update item */ }
-      if (payload.eventType === 'DELETE') { /* remove item by payload.old.id */ }
-    }
-  )
-  .subscribe();
+// Send
+channel.send('user_action', { type: 'todo_created', data: newTodo })
 ```
 
----
+## createPresenceChannel(name)
+Creates a presence channel for tracking online users across tabs.
+```typescript
+const channel = createPresenceChannel('online-users')
 
-## ⚡ Pattern: Filter Subscription to One Row's Changes
+channel.subscribe(
+  userId,
+  { name: 'John', avatar: '...' },
+  {
+    onSync: (users) => setOnlineUsers(users),
+    onJoin: (user) => console.log('Joined:', user),
+    onLeave: (user) => console.log('Left:', user),
+  }
+)
 
-```ts
-// Only listen for changes to tasks in board X
-.on('postgres_changes', {
-  event: '*',
-  schema: 'public',
-  table: 'tasks',
-  filter: `board_id=eq.${boardId}`,
-}, handler)
+// Cleanup
+channel.untrack()
 ```
 
----
-
-## ⚡ Pattern: Presence (Who is Online)
-
-```ts
-const channel = supabase.channel('online-users');
-
-channel
-  .on('presence', { event: 'sync' }, () => {
-    const state = channel.presenceState();
-    console.log('Online users:', Object.keys(state));
-  })
-  .subscribe(async (status) => {
-    if (status === 'SUBSCRIBED') {
-      await channel.track({ user_id: user.id, online_at: new Date().toISOString() });
-    }
-  });
+## Realtime with Smart Queries
+The preferred pattern is to use the realtime hooks from `src/lib/query/hooks.ts` which integrate directly with TanStack Query:
+```typescript
+// Subscribe and auto-update cache
+usePersonalTodosRealtime(userId)
+useTeamTodosRealtime(teamId)
+useStorageFilesRealtime(userId, teamId)
 ```
 
----
+These hooks call `queryClient.setQueryData()` directly on INSERT/UPDATE/DELETE events, so the UI updates instantly without a network refetch.
 
-## ⚠️ Gotchas
+## Team Realtime
+`subscribeToTeam(teamId, callbacks)` subscribes to both team todos AND team member changes simultaneously:
+```typescript
+const channels = subscribeToTeam(teamId, {
+  onTodoInsert: (data) => { ... },
+  onTodoUpdate: (data) => { ... },
+  onTodoDelete: (data) => { ... },
+  onMemberChange: () => { ... },
+})
 
-- **Always unsubscribe** in the `useEffect` cleanup — forgetting causes memory leaks and duplicate events.
-- Realtime requires the table to have **Replication enabled** in Supabase Dashboard → Database → Replication.
-- RLS applies to realtime too — if a subscription returns nothing, check the RLS policy for SELECT.
-- Channel names must be **unique per client** — use a specific name like `'tasks-board-${boardId}'` instead of just `'tasks'`.
+// Cleanup all channels
+await unsubscribeFromTeam(channels)
+```
+
+## Important Notes
+- Each subscription creates a WebSocket connection. Too many channels can hit rate limits.
+- Always clean up subscriptions in useEffect cleanup functions.
+- Filters use PostgREST syntax: `column=eq.value`, `column=gt.value`, etc.
+- Realtime must be enabled on tables in Supabase dashboard or via migrations (PUBLICATION).

@@ -56,3 +56,22 @@ export {
   unsubscribe,
   unsubscribeAll,
 } from './realtime'
+
+// Teams
+export {
+  type Team,
+  type TeamMember,
+  type CreateTeamParams,
+  type AddMemberParams,
+  createTeam,
+  getUserTeams,
+  getTeamMembers,
+  addTeamMember,
+  updateMemberRole,
+  removeTeamMember,
+  leaveTeam,
+  deleteTeam,
+  getTeamById,
+  subscribeToTeam,
+  unsubscribeFromTeam,
+} from './teams'

@@ -1,44 +1,83 @@
-# 📚 SupabaseFullLearn — Skills Folder
+# Supabase React Template - Skills Index
 
-This folder is your **personal knowledge base** for this project.
-Every time you learn something new, implement a pattern, or discover a gotcha — write it here.
+This template provides a complete, production-ready Supabase + React + TypeScript + TanStack Query architecture.
 
-## 📁 Folder Structure
+## 📚 Skills Documentation
+
+| File | Topic | Description |
+|------|-------|-------------|
+| [01_authentication.md](./01_authentication.md) | Authentication | Client setup, sign in/up, OAuth, MFA, admin operations |
+| [02_database.md](./02_database.md) | Database | Queries (fetchAll, fetchById, search, paginate), Mutations (insert, update, delete, upsert), Transactions |
+| [03_realtime.md](./03_realtime.md) | Realtime | Postgres changes, broadcast channels, presence tracking |
+| [04_storage.md](./04_storage.md) | Storage | Upload, download, delete, signed URLs, file validation |
+| [05_rls_policies.md](./05_rls_policies.md) | RLS | Row-Level Security policies, personal vs team access |
+| [06_utilities.md](./06_utilities.md) | Utilities | Error handling, validation, formatting |
+| [07_hooks_patterns.md](./07_hooks_patterns.md) | Hooks | Smart Query hooks (TanStack Query) + Generic hooks (useState-based) |
+| [08_migrations.md](./08_migrations.md) | Migrations | Schema management, applying, creating, rolling back |
+| [09_teams.md](./09_teams.md) | Teams | Multi-tenant system, roles, team-aware data access |
+| [10_debugging_gotchas.md](./10_debugging_gotchas.md) | Debugging | Error codes, debugging checklist, common gotchas |
+| [operations-flow.md](./operations-flow.md) | Operations Map | Complete function reference with parameters and returns |
+| [prompt.md](./prompt.md) | System Prompt | AI agent system prompt with full architecture reference |
+
+## 🏗️ Architecture Layers
 
 ```
-skills/
-├── README.md                  ← You are here (master index)
-├── 01_authentication.md       ← Sign in, sign up, OAuth, MFA, session
-├── 02_database.md             ← CRUD, filters, joins, pagination
-├── 03_realtime.md             ← Subscriptions, live queries, channels
-├── 04_storage.md              ← File upload, download, public URLs, buckets
-├── 05_rls_policies.md         ← Row Level Security patterns & common fixes
-├── 06_edge_functions.md       ← Writing & calling Supabase Edge Functions
-├── 07_hooks_patterns.md       ← React hooks built on top of Supabase
-├── 08_migrations.md           ← Writing & applying DB migrations
-└── 09_debugging_gotchas.md    ← Known bugs, error codes, and fixes
+┌─────────────────────────────────────────────────────┐
+│                   UI Components                      │
+│              (src/App.tsx - DEMO)                    │
+├─────────────────────────────────────────────────────┤
+│           Smart Query Hooks (TanStack Query)         │
+│              (src/lib/query/hooks.ts)                │
+│   usePersonalTodos, useCreateTodo, useTeamMembers    │
+├─────────────────────────────────────────────────────┤
+│          Generic Hooks (useState-based)              │
+│         (src/hooks/useSupabase.ts, useAuth.tsx)      │
+│   useFetch, useInsert, useLiveQuery, useAuth         │
+├─────────────────────────────────────────────────────┤
+│              Database Operations                     │
+│           (src/lib/database/)                        │
+│   fetchAll, insertOne, updateById, deleteById        │
+├─────────────────────────────────────────────────────┤
+│              Supabase Client                         │
+│             (src/lib/auth/client.ts)                 │
+│         createClient(url, anonKey, config)           │
+└─────────────────────────────────────────────────────┘
 ```
 
-## ✅ How to Use This Folder
+## 🗂️ File Structure
 
-### When you **start working** tomorrow:
-1. Open the relevant skill file for what you'll build (e.g. `02_database.md` for a new table).
-2. Read the "Pattern" section to copy the correct code shape.
-3. Check `09_debugging_gotchas.md` if you hit an error.
+```
+src/
+├── lib/              # TEMPLATE CORE - always keep
+│   ├── auth/         # Authentication layer
+│   ├── database/     # Database operations
+│   ├── storage/      # File storage operations
+│   ├── query/        # Smart Query layer (TanStack Query)
+│   ├── utils/        # Error handling, validation, formatting
+│   ├── constants/    # Configuration constants
+│   └── index.ts      # Master barrel export
+├── providers/        # TEMPLATE CORE - React providers
+│   ├── QueryProvider.tsx
+│   └── SupabaseProvider.tsx
+├── hooks/            # TEMPLATE CORE - Generic hooks
+│   ├── useSupabase.ts
+│   └── useAuth.tsx
+├── types/            # TEMPLATE CORE - TypeScript types
+│   └── database.ts
+├── App.tsx           # ❌ DEMO - delete when using as template
+├── App.css           # ❌ DEMO - delete when using as template
+└── main.tsx          # Entry point - keep but modify
+```
 
-### When you **finish a feature**:
-1. Add what you learned to the relevant skill file.
-2. If you fixed a bug, add it to `09_debugging_gotchas.md`.
-3. Keep each entry short: **what it is**, **the code**, **why it works**.
+## 🚀 Quick Start
 
-### When you **start a new feature**:
-Ask yourself:
-- Do I need auth? → `01_authentication.md`
-- Do I need to read/write data? → `02_database.md`
-- Do I need live updates? → `03_realtime.md`
-- Do I need file uploads? → `04_storage.md`
-- Am I getting 403 errors? → `05_rls_policies.md`
+1. Install dependencies: `npm install`
+2. Copy `.env` and fill in your Supabase credentials
+3. Push migrations: `supabase db push`
+4. Start dev server: `npm run dev`
 
----
+## 📋 For Template Users
 
-> **Rule:** If you had to think about it for more than 10 minutes, write it here so tomorrow-you doesn't have to.
+**Keep:** Everything in `src/lib/`, `src/providers/`, `src/hooks/`, `src/types/`
+**Delete:** `src/App.tsx`, `src/App.css`
+**Modify:** `src/main.tsx` to use your own App, `src/types/database.ts` with your generated types
