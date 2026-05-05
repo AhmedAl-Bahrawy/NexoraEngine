@@ -4,6 +4,7 @@ A universal backend SDK built on Supabase. Build any application without rewriti
 
 [![npm version](https://badge.fury.io/js/nexora-engine.svg)](https://www.npmjs.com/package/nexora-engine)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![GitHub](https://img.shields.io/badge/GitHub-AhmedAl--Bahrawy/NexoraEngine-blue)](https://github.com/AhmedAl-Bahrawy/NexoraEngine)
 
 ## Table of Contents
 
@@ -1753,9 +1754,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Support
 
-- Documentation: [GitHub Wiki](https://github.com/yourusername/nexora-engine/wiki)
-- Issues: [GitHub Issues](https://github.com/yourusername/nexora-engine/issues)
-- Discussions: [GitHub Discussions](https://github.com/yourusername/nexora-engine/discussions)
+- Documentation: [GitHub Wiki](https://github.com/AhmedAl-Bahrawy/NexoraEngine/wiki)
+- Issues: [GitHub Issues](https://github.com/AhmedAl-Bahrawy/NexoraEngine/issues)
+- Discussions: [GitHub Discussions](https://github.com/AhmedAl-Bahrawy/NexoraEngine/discussions)
 
 ---
 
