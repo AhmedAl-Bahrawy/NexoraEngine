@@ -10,7 +10,7 @@ SDK Architecture
 architecture
 
 ## description
-Layered SDK design with Core Engine, Query Layer, Optimization Layer, Validation Layer, Error Layer, and Auth Layer for maximum reusability and clean abstraction.
+Layered SDK design with Core Engine, Query Layer, Optimization Layer, Validation Layer, Error Layer, Auth Layer, and Utility Layer for maximum reusability and clean abstraction.
 
 ## intent
 ### what
@@ -48,6 +48,11 @@ Ensures the SDK remains maintainable, extensible, and reusable across any applic
 - **mfa.ts**: Multi-factor authentication
 - **admin.ts**: Admin operations
 - **middleware.ts**: Route protection, role checks
+
+### Utility Layer (`src/lib/utils/`)
+- **validators.ts**: Input validation helpers (email, password, file)
+- **formatters.ts**: Data formatting (dates, files, text)
+- **rate-limit.ts**: Rate limiting functionality
 
 ## inputs
 ```typescript
@@ -113,6 +118,7 @@ const { user } = await signInWithPassword(creds)
 4. **Validation layer** provides Zod schemas for input validation
 5. **Error layer** normalizes all errors to NexoraError types
 6. **Auth layer** wraps Supabase Auth with enhanced error handling
+7. **Utility layer** provides common helper functions (validators, formatters, rate limiting)
 
 ### dependency graph
 ```
@@ -123,8 +129,9 @@ Application
 │   │   └── Cache Layer (cache, keys)
 │   ├── Validation Layer (schema, commonSchemas)
 │   ├── Error Layer (nexora-error)
-│   └── Auth Layer (operations, mfa, admin, middleware)
-│       └── Core Layer (client)
+│   ├── Auth Layer (operations, mfa, admin, middleware)
+│   │   └── Core Layer (client)
+│   └── Utility Layer (validators, formatters, rate-limit)
 ```
 
 ## constraints

@@ -1,7 +1,10 @@
 import { QueryCache } from '../cache/cache'
 import { deriveCacheKey, deriveMutationKeys } from '../cache/keys'
+import { getClient } from '../core/client'
 import { QueryBuilder, createQuery } from './builder'
-import type { Filter, SortConfig, PaginationConfig } from './types'
+import { InfiniteScrollManager } from './infinite-scroll'
+import type { Filter, SortConfig, PaginationConfig, CursorPaginationConfig, InfiniteScrollState, InfiniteScrollOptions, OptimisticUpdateOptions } from './types'
+import type { FilterCondition } from '../database'
 import type { GenericRow } from '../../types'
 import {
   fetchAll,
@@ -42,6 +45,15 @@ export interface PaginatedResponse<T> {
   page: number
   pageSize: number
   totalPages: number
+  hasNextPage: boolean
+  hasPreviousPage: boolean
+}
+
+export interface CursorPaginatedResponse<T> {
+  data: T[]
+  hasMore: boolean
+  nextCursor: string | null
+  totalCount: number
 }
 
 export class QueryEngine {
@@ -236,7 +248,7 @@ export class QueryEngine {
   private async executeAndCache(options: CachedQueryOptions, bypassCache = false): Promise<unknown[]> {
     const result = await fetchAll(options.table, {
       select: options.columns,
-      filters: options.filters,
+      filters: options.filters as unknown as FilterCondition[],
       orderBy: options.sort?.map(s => ({ column: s.column, ascending: s.ascending })),
       limit: options.pagination?.limit,
       offset: options.pagination?.offset,
@@ -260,7 +272,7 @@ export class QueryEngine {
     const result = await fetchPaginated(options.table, {
       page,
       pageSize,
-      filters: options.filters,
+      filters: options.filters as unknown as FilterCondition[],
       orderBy: options.sort?.map(s => ({ column: s.column, ascending: s.ascending })),
       select: options.columns,
       timeout: options.timeout,
@@ -273,6 +285,147 @@ export class QueryEngine {
       page: result.page,
       pageSize: result.pageSize,
       totalPages: result.totalPages,
+      hasNextPage: result.hasNextPage ?? page < result.totalPages,
+      hasPreviousPage: result.hasPreviousPage ?? page > 1,
+    }
+  }
+
+  async queryPaginatedCursor<T>(
+    options: InfiniteScrollOptions & { cursor?: string; cursorColumn?: string }
+  ): Promise<CursorPaginatedResponse<T>> {
+    const supabase = getClient()
+    const cursorColumn = options.cursorColumn ?? 'id'
+    const limit = options.pageSize ?? 20
+    const sort = options.sort?.[0] ?? { column: cursorColumn, ascending: true }
+
+    let query = supabase.from(options.table).select(options.columns ?? '*')
+
+    if (options.filters?.length) {
+      for (const filter of options.filters) {
+        query = this.applyFilterToQuery(query, filter)
+      }
+    }
+
+    if (options.cursor) {
+      query = query[sort.ascending !== false ? 'gt' : 'lt'](cursorColumn, options.cursor)
+    }
+
+    query = query.order(sort.column, { ascending: sort.ascending ?? true }).limit(limit + 1)
+
+    const { data, error } = await query
+
+    if (error) {
+      throw new Error(String(error))
+    }
+
+    const results = data ?? []
+    const hasMore = results.length > limit
+    const items = hasMore ? results.slice(0, limit) : results
+    const nextCursor = hasMore ? (items[items.length - 1] as any)?.[cursorColumn] ?? null : null
+
+    let totalCount = 0
+    if (!options.cursor) {
+      totalCount = await count(options.table, options.filters as unknown as FilterCondition[])
+    }
+
+    return {
+      data: items as T[],
+      hasMore,
+      nextCursor,
+      totalCount,
+    }
+  }
+
+  private applyFilterToQuery(query: any, filter: Filter): any {
+    const { column, operator, value } = filter
+    switch (operator) {
+      case 'eq': return query.eq(column, value)
+      case 'neq': return query.neq(column, value)
+      case 'gt': return query.gt(column, value)
+      case 'gte': return query.gte(column, value)
+      case 'lt': return query.lt(column, value)
+      case 'lte': return query.lte(column, value)
+      case 'like': return query.like(column, String(value))
+      case 'ilike': return query.ilike(column, String(value))
+      case 'in': return query.in(column, value as unknown[])
+      case 'is': return query.is(column, value)
+      case 'contains': return query.contains(column, value)
+      case 'containedBy': return query.containedBy(column, value)
+      case 'overlap': return query.overlap(column, value)
+      case 'match': return query.match(value as Record<string, unknown>)
+      default: return query
+    }
+  }
+
+  createInfiniteScroll<T = GenericRow>(
+    options: InfiniteScrollOptions
+  ): InfiniteScrollManager<T> {
+    return new InfiniteScrollManager<T>(this, options)
+  }
+
+  async optimisticUpdate<T = GenericRow>(
+    table: string,
+    id: string,
+    data: Partial<T>,
+    updateFn: (data: Partial<T>) => Promise<T>
+  ): Promise<{ rollback: () => void }> {
+    const cache = this.cache
+    const cachePattern = `qb:${table}:`
+    const previousData = new Map<string, any>()
+
+    for (const key of cache.keys()) {
+      if (key.startsWith(cachePattern)) {
+        const cached = cache.get<any[]>(key)
+        if (cached) {
+          for (const item of cached) {
+            if ((item as any).id === id) {
+              previousData.set(key, { ...item })
+              ;(item as any) = { ...(item as any), ...data }
+            }
+          }
+        }
+      }
+    }
+
+    try {
+      const result = await updateFn(data)
+
+      for (const key of cache.keys()) {
+        if (key.startsWith(cachePattern)) {
+          const cached = cache.get<any[]>(key)
+          if (cached) {
+            const index = cached.findIndex((item: any) => item.id === id)
+            if (index !== -1) {
+              cached[index] = result
+            }
+          }
+        }
+      }
+
+      return {
+        rollback: () => {
+          for (const [key, previousItem] of previousData.entries()) {
+            const cached = cache.get<any[]>(key)
+            if (cached) {
+              const index = cached.findIndex((item: any) => item.id === id)
+              if (index !== -1) {
+                cached[index] = previousItem
+              }
+            }
+          }
+        },
+      }
+    } catch (error) {
+      for (const [key, previousItem] of previousData.entries()) {
+        const cached = cache.get<any[]>(key)
+        if (cached) {
+          const index = cached.findIndex((item: any) => item.id === id)
+          if (index !== -1) {
+            cached[index] = previousItem
+          }
+        }
+      }
+      throw error
     }
   }
 
@@ -299,7 +452,7 @@ export class QueryEngine {
       return result.data
     }
 
-    const results = await fetchWhere(table, filters, {
+    const results = await fetchWhere(table, filters as unknown as FilterCondition[], {
       select: columns,
       limit: 1,
       timeout,
@@ -315,7 +468,7 @@ export class QueryEngine {
     timeout?: number,
     retries?: number
   ): Promise<number> {
-    return count(table, filters)
+    return count(table, filters as unknown as FilterCondition[])
   }
 
   private buildQueryKey(options: CachedQueryOptions): string {

@@ -15,6 +15,8 @@ export {
   CacheError,
   RateLimitError,
   TimeoutError,
+  ForbiddenError,
+  StorageError,
 } from './errors/nexora-error'
 
 // Validation layer
@@ -58,12 +60,43 @@ export {
   runSequential,
 } from './database'
 
+// Query layer - Realtime
+export {
+  subscribeToTable,
+  subscribeToTables,
+  getActiveSubscriptions,
+  createBroadcastChannel,
+  createPresenceChannel,
+  unsubscribe,
+  unsubscribeAll,
+} from './database'
+export type {
+  RealtimeEvent,
+  RealtimeChange,
+  SubscriptionConfig,
+  SubscriptionCallbacks,
+  SubscriptionHandle,
+} from './database'
+
 // Query layer - Builder and Engine
 export {
   QueryEngine,
   QueryBuilder,
   createQuery,
+  InfiniteScrollManager,
   queryEngine,
+} from './query-engine'
+export type {
+  Filter,
+  SortConfig,
+  PaginationConfig,
+  CursorPaginationConfig,
+  InfiniteScrollState,
+  InfiniteScrollOptions,
+  OptimisticUpdateOptions,
+  CachedQueryOptions,
+  PaginatedResponse,
+  CursorPaginatedResponse,
 } from './query-engine'
 
 // Auth layer
@@ -77,4 +110,3 @@ export * from './utils'
 
 // Types
 export type { GenericRow as DbRow, PaginatedResult } from '../types'
-export type { Filter, SortConfig, PaginationConfig } from './query-engine/types'

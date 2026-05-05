@@ -50,7 +50,78 @@ const result = await queryEngine.queryPaginated<User>({
   pageSize: 20,
 })
 
-// result: { data, count, page, pageSize, totalPages }
+// result: { data, count, page, pageSize, totalPages, hasNextPage, hasPreviousPage }
+```
+
+### Cursor-Based Pagination
+
+For large datasets, use cursor-based pagination which is more efficient than offset:
+
+```typescript
+const page1 = await queryEngine.queryPaginatedCursor<User>({
+  table: 'posts',
+  filters: [{ column: 'published', operator: 'eq', value: true }],
+  sort: [{ column: 'created_at', ascending: false }],
+  pageSize: 20,
+  cursorColumn: 'id', // default
+})
+
+// page1: { data, hasMore, nextCursor, totalCount }
+
+const page2 = await queryEngine.queryPaginatedCursor<User>({
+  table: 'posts',
+  filters: [{ column: 'published', operator: 'eq', value: true }],
+  sort: [{ column: 'created_at', ascending: false }],
+  pageSize: 20,
+  cursor: page1.nextCursor,
+})
+```
+
+### Infinite Scroll
+
+For automatic infinite scroll state management:
+
+```typescript
+const scroll = queryEngine.createInfiniteScroll<User>({
+  table: 'posts',
+  filters: [{ column: 'published', operator: 'eq', value: true }],
+  sort: [{ column: 'created_at', ascending: false }],
+  pageSize: 20,
+})
+
+// Load initial page
+const state = await scroll.load()
+// state: { data, loading, loadingMore, hasMore, cursor, error, totalCount }
+
+// Load more when scrolling
+const moreState = await scroll.loadMore()
+
+// Real-time state mutations
+scroll.append(newPost)
+scroll.remove(postId)
+scroll.update(postId, { title: 'Updated' })
+
+// Reset or refresh
+scroll.reset()
+await scroll.refresh()
+```
+
+### Optimistic Updates
+
+For immediate UI feedback with automatic rollback:
+
+```typescript
+const { rollback } = await queryEngine.optimisticUpdate<User>(
+  'posts',
+  postId,
+  { title: 'New Title' },
+  async (data) => {
+    return await updateById('posts', postId, data)
+  }
+)
+
+// On failure, cache is automatically rolled back
+// Use rollback() for manual rollback if needed
 ```
 
 ### Count
@@ -127,14 +198,20 @@ For complex queries requiring full control, use the fluent `QueryBuilder`:
 
 ```typescript
 import { createQuery } from '@/lib'
-import { supabase } from '@/lib'
 
-const query = createQuery<User>(supabase, 'users')
+const query = createQuery('users')
 ```
 
 ### Filtering
 
 ```typescript
+// Array-based (existing)
+query.filters([
+  { column: 'status', operator: 'eq', value: 'active' },
+  { column: 'age', operator: 'gte', value: 18 },
+])
+
+// Chainable methods (NEW)
 query
   .eq('status', 'active')
   .neq('role', 'banned')
@@ -147,41 +224,59 @@ query
   .is('deleted_at', null)
   .in('role', ['admin', 'moderator'])
   .contains('tags', ['featured'])
+  .containedBy('permissions', ['read', 'write'])
+  .overlap('categories', [1, 2, 3])
+  .match({ status: 'active', type: 'post' })
+  .not('status', 'eq', 'archived')
 ```
 
 ### Sorting
 
 ```typescript
 query
-  .orderBy('created_at', { ascending: false })
-  .orderBy('name', { ascending: true, nullsFirst: false })
+  .sort([{ column: 'created_at', ascending: false }])
 ```
 
 ### Pagination
 
 ```typescript
 query
-  .limit(20)
-  .offset(40)
-
-// Or by page
-query.paginate(3, 20)  // Page 3, 20 per page
+  .paginate(3, 20)  // Page 3, 20 per page
 ```
 
-### Execution
+### Select & Projection
 
 ```typescript
-// Fetch multiple
-const users = await query.execute()
+query.select('id, name, email')
+```
 
-// Fetch single
-const user = await query.single().executeSingle()
+### Single & Head
 
-// Get count
-const count = await query.executeCount()
+```typescript
+// Get single result
+const post = await createQuery('posts')
+  .eq('slug', 'my-post')
+  .single()
+  .executeSingle()
 
-// Head query (metadata only)
-const head = await query.head().execute()
+// Head query (count only)
+const { count } = await createQuery('posts')
+  .eq('published', true)
+  .head()
+  .execute()
+```
+
+### Query Cancellation
+
+```typescript
+const query = createQuery('posts')
+  .eq('search', searchTerm)
+  .abort() // Enable cancellation
+
+// Cancel if search term changed
+query.cancel()
+
+const { data } = await query.execute()
 ```
 
 ## Filter Operators
@@ -199,7 +294,7 @@ const head = await query.head().execute()
 | `is` | Null/boolean check | `IS value` |
 | `in` | Value in list | `IN (values)` |
 | `contains` | Array/object contains | `@>` |
-| `contained` | Array/object contained | `<@` |
+| `containedBy` | Array/object contained | `<@` |
 | `overlap` | Array overlap | `&&` |
 | `match` | Multiple equality | `col1=val1 AND col2=val2` |
 | `not` | Negation | `NOT operator value` |

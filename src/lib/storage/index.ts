@@ -233,3 +233,4 @@ export async function uploadFromURL(
 
 export { validateFile, validateImage, validateDocument }
 export { STORAGE as STORAGE_ERRORS }
+export { StorageError } from '../errors/nexora-error'

@@ -1,0 +1,98 @@
+{
+  "id": "nexora.utility-functions",
+  "name": "Utility Functions",
+  "category": "utilities",
+  "description": "Common utility functions for validation, formatting, and rate limiting",
+  "intent": {
+    "what": "Provides helper functions for input validation, data formatting, and rate limiting",
+    "why": "Reduces boilerplate and provides standardized utilities that work seamlessly with the SDK"
+  },
+  "functions": [
+    {
+      "name": "isValidEmail",
+      "params": [{ "name": "email", "type": "string" }],
+      "returns": "boolean",
+      "description": "Validates if a string is a valid email format"
+    },
+    {
+      "name": "validatePassword",
+      "params": [{ "name": "password", "type": "string" }],
+      "returns": "object",
+      "description": "Validates password strength with detailed feedback"
+    },
+    {
+      "name": "validateFileType",
+      "params": [{ "name": "file", "type": "File" }, { "name": "allowedTypes", "type": "string[]" }],
+      "returns": "boolean",
+      "description": "Validates if a file's MIME type is in the allowed list"
+    },
+    {
+      "name": "validateFileSize",
+      "params": [{ "name": "file", "type": "File" }, { "name": "maxSizeBytes", "type": "number" }],
+      "returns": "boolean",
+      "description": "Validates if a file is within the size limit"
+    },
+    {
+      "name": "formatDate",
+      "params": [{ "name": "date", "type": "string | Date" }, { "name": "format", "type": "string", "default": "short", "optional": true }],
+      "returns": "string",
+      "description": "Formats dates for display"
+    },
+    {
+      "name": "formatDateTime",
+      "params": [{ "name": "date", "type": "string | Date" }],
+      "returns": "string",
+      "description": "Formats date and time"
+    },
+    {
+      "name": "formatFileSize",
+      "params": [{ "name": "bytes", "type": "number" }],
+      "returns": "string",
+      "description": "Formats file sizes in human-readable format"
+    },
+    {
+      "name": "truncateText",
+      "params": [{ "name": "text", "type": "string" }, { "name": "maxLength", "type": "number" }],
+      "returns": "string",
+      "description": "Truncates text with ellipsis"
+    },
+    {
+      "name": "slugify",
+      "params": [{ "name": "text", "type": "string" }],
+      "returns": "string",
+      "description": "Converts text to URL-friendly slug"
+    },
+    {
+      "name": "RateLimiter",
+      "type": "class",
+      "description": "Rate limiter for controlling request rates",
+      "methods": [
+        { "name": "check", "params": [{ "name": "identifier", "type": "string" }], "returns": "object" },
+        { "name": "consume", "params": [{ "name": "identifier", "type": "string" }], "returns": "boolean" },
+        { "name": "reset", "params": [{ "name": "identifier", "type": "string", "optional": true }] }
+      ]
+    },
+    {
+      "name": "rateLimit",
+      "params": [{ "name": "identifier", "type": "string" }, { "name": "config", "type": "object", "optional": true }],
+      "returns": "object",
+      "description": "Simple rate limit function"
+    }
+  ],
+  "usage": {
+    "input_validation": "Use isValidEmail, validatePassword for user input",
+    "file_validation": "Use validateFileType, validateFileSize for uploads",
+    "formatting": "Use formatDate, formatFileSize for display",
+    "rate_limiting": "Use RateLimiter class or rateLimit function"
+  },
+  "integration": {
+    "validators": "Work with ValidationError and Zod schemas",
+    "formatters": "Work with data from database queries",
+    "rate_limiting": "Can protect routes using enforceAuth middleware"
+  },
+  "metadata": {
+    "complexity": "low",
+    "stability": "stable",
+    "sdk_layer": "utilities"
+  }
+}

@@ -1,0 +1,111 @@
+id: nexora.infinite-scroll
+name: Infinite Scroll & Advanced Query Features
+category: query
+description: Nexora Engine's infinite scroll manager, cursor-based pagination, optimistic updates, and enhanced QueryBuilder capabilities for building performant, responsive data loading experiences.
+
+intent:
+  what: Provides tools for implementing infinite scroll patterns, cursor-based pagination for efficient data loading, optimistic UI updates with automatic rollback, and an enhanced QueryBuilder with chainable filter methods and query cancellation.
+  why: Offset-based pagination becomes inefficient with large datasets. Cursor pagination scales better and avoids skip overhead. Optimistic updates improve perceived performance by showing changes immediately. Query cancellation prevents wasted network requests on unmounted components or superseded searches.
+
+inputs:
+  InfiniteScrollOptions:
+    table: string
+    columns: string?
+    filters: Filter[]?
+    sort: SortConfig[]?
+    pageSize: number? (default 20)
+    cursorColumn: string? (default 'id')
+    ttl: number?
+    bypassCache: boolean?
+    timeout: number?
+    retries: number?
+  InfiniteScrollState:
+    data: T[]
+    loading: boolean
+    loadingMore: boolean
+    hasMore: boolean
+    cursor: string | null
+    error: Error | null
+    totalCount: number
+  CursorPaginatedResponse:
+    data: T[]
+    hasMore: boolean
+    nextCursor: string | null
+    totalCount: number
+
+outputs:
+  InfiniteScrollManager:
+    load(): Promise<InfiniteScrollState<T>>
+    loadMore(): Promise<InfiniteScrollState<T>>
+    preloadNext(): Promise<void>
+    reset(): InfiniteScrollState<T>
+    refresh(): Promise<InfiniteScrollState<T>>
+    getState(): InfiniteScrollState<T>
+    append(item): void
+    remove(id): void
+    update(id, data): void
+    cancel(): void
+  CursorPagination: Promise<CursorPaginatedResponse<T>>
+  OptimisticUpdate: Promise<{ rollback: () => void }>
+  QueryBuilder:
+    chainable: [.eq(), .neq(), .gt(), .gte(), .lt(), .lte(), .like(), .ilike(), .in(), .is(), .contains(), .containedBy(), .overlap(), .match(), .not(), .single(), .head(), .abort(), .cancel()]
+
+usage:
+  infiniteScroll: queryEngine.createInfiniteScroll({ table, filters, sort, pageSize }).load().then(state => ...).loadMore()
+  cursorPagination: queryEngine.queryPaginatedCursor({ table, cursor: prevCursor }).then(({ data, hasMore, nextCursor }) => ...)
+  optimisticUpdate: queryEngine.optimisticUpdate(table, id, data, updateFn).then(({ rollback }) => ...)
+  enhancedQueryBuilder: createQuery(table).eq('col', val).contains('tags', ['x']).single().execute()
+
+logic:
+  infiniteScroll: Fetches limit+1 items to determine hasMore. Sets cursor from last item. loadMore() appends to existing data.
+  cursorPagination: Uses gt/lt operator on cursor column based on sort direction. Count only on first page.
+  optimisticUpdate: Patches cache immediately, stores original values, executes server update, restores on failure.
+  queryBuilder: Chainable methods push to internal filter array. single()/head() modify query execution. abort() enables cancellation.
+
+constraints:
+  rules:
+    - Cursor column must be unique and sortable
+    - Sort direction affects cursor comparison (ascending=gt, descending=lt)
+    - Optimistic updates only work with cached data
+    - .cancel() must be called before or during .execute()
+    - preloadNext() errors are silently ignored
+  antiPatterns:
+    - Don't use offset pagination for datasets >1000 rows
+    - Don't use optimistic updates for critical operations
+    - Don't call loadMore() when hasMore is false
+    - Don't mix cursor and offset pagination in same view
+    - Don't forget to call cancel() on unmount
+
+dependencies:
+  internal: [QueryEngine, QueryBuilder, QueryCache, count, executeRequest]
+  external: ["@supabase/supabase-js"]
+
+codeMapping:
+  queryEngine.createInfiniteScroll(): InfiniteScrollManager constructor
+  scroll.load(): InfiniteScrollManager.load()
+  scroll.loadMore(): InfiniteScrollManager.loadMore()
+  queryEngine.queryPaginatedCursor(): QueryEngine.queryPaginatedCursor()
+  queryEngine.optimisticUpdate(): QueryEngine.optimisticUpdate()
+  createQuery().eq(): QueryBuilder.eq()
+  createQuery().contains(): QueryBuilder.contains()
+  createQuery().single(): QueryBuilder.single()
+  createQuery().abort(): QueryBuilder.abort()
+  createQuery().cancel(): QueryBuilder.cancel()
+
+aiInstructions:
+  whenToUse:
+    - Infinite scroll for feeds, timelines, long lists
+    - Cursor pagination for datasets >1000 rows
+    - Optimistic updates for non-critical UI interactions
+    - Query cancellation for search inputs and rapid navigation
+    - Preload for smooth infinite scroll without loading spinners
+  whenNotToUse:
+    - Infinite scroll for admin tables needing page jumps
+    - Cursor pagination when users need arbitrary page numbers
+    - Optimistic updates for financial transactions
+    - Cancellation for idempotent safe operations
+
+metadata:
+  complexity: medium
+  stability: stable
+  sdkLayer: query_engine

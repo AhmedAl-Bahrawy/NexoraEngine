@@ -27,6 +27,16 @@ export {
   runSequential,
 } from './mutations'
 
+export {
+  subscribeToTable,
+  subscribeToTables,
+  getActiveSubscriptions,
+  createBroadcastChannel,
+  createPresenceChannel,
+  unsubscribe,
+  unsubscribeAll,
+} from './realtime'
+
 export type {
   FilterCondition,
   QueryOptions,
@@ -34,5 +44,13 @@ export type {
   PaginatedResult,
   AggregateResult,
 } from './queries'
+
+export type {
+  RealtimeEvent,
+  RealtimeChange,
+  SubscriptionConfig,
+  SubscriptionCallbacks,
+  SubscriptionHandle,
+} from './realtime'
 
 export { getClient as getSupabaseClient } from '../core/client'

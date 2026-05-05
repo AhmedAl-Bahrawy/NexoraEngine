@@ -1,4 +1,6 @@
 export { QueryEngine } from './engine'
 export { QueryBuilder, createQuery } from './builder'
-export type { Filter, SortConfig, PaginationConfig, CachedQueryOptions, PaginatedResponse } from './types'
+export { InfiniteScrollManager } from './infinite-scroll'
+export type { Filter, SortConfig, PaginationConfig, CursorPaginationConfig, InfiniteScrollState, InfiniteScrollOptions, OptimisticUpdateOptions, CachedQueryOptions, PaginatedResponse, CursorPaginatedResponse } from './types'
+export type { CursorPaginatedResponse as CursorPaginatedResponseFromEngine } from './engine'
 export { queryEngine } from './engine'

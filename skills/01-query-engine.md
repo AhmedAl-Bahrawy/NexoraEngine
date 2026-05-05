@@ -49,10 +49,26 @@ interface PaginatedResponse<T> {
   page: number
   pageSize: number
   totalPages: number
+  hasNextPage: boolean
+  hasPreviousPage: boolean
 }
+
+// queryPaginatedCursor() - NEW
+interface CursorPaginatedResponse<T> {
+  data: T[]
+  hasMore: boolean
+  nextCursor: string | null
+  totalCount: number
+}
+
+// createInfiniteScroll() - NEW
+InfiniteScrollManager<T>
 
 // queryCount()
 number
+
+// optimisticUpdate() - NEW
+Promise<{ rollback: () => void }>
 ```
 
 ## usage
@@ -116,7 +132,11 @@ await queryEngine.remove('users', 'user-id')
 - TTL is in milliseconds
 - `bypassCache: true` skips cache read but still writes on successful response
 - Pagination uses `limit` and `offset` internally
-- Filters use Supabase filter operators (eq, neq, gt, gte, lt, lte, like, ilike, in, is)
+- Filters use Supabase filter operators (eq, neq, gt, gte, lt, lte, like, ilike, in, is, contains, containedBy, overlap, match, not)
+- `PaginatedResponse` includes `hasNextPage` and `hasPreviousPage` booleans
+- Use `queryPaginatedCursor()` for cursor-based pagination with large datasets
+- Use `createInfiniteScroll()` for automatic infinite scroll state management
+- Use `optimisticUpdate()` for immediate UI feedback with automatic rollback
 
 ### anti-patterns
 - Don't use `queryEngine` for real-time data that changes rapidly (use direct `fetchAll` or subscriptions)
@@ -135,20 +155,23 @@ await queryEngine.remove('users', 'user-id')
 ## code_mapping
 ```typescript
 // SDK Functions
-queryEngine.query()        -> QueryEngine.query()
-queryEngine.querySingle()   -> QueryEngine.querySingle()
-queryEngine.queryPaginated() -> QueryEngine.queryPaginated()
-queryEngine.queryCount()    -> QueryEngine.queryCount()
-queryEngine.create()        -> QueryEngine.create()
-queryEngine.createMany()    -> QueryEngine.createMany()
-queryEngine.update()        -> QueryEngine.update()
-queryEngine.updateWhere()   -> QueryEngine.updateWhere()
-queryEngine.upsert()       -> QueryEngine.upsert()
-queryEngine.remove()        -> QueryEngine.remove()
-queryEngine.removeWhere()   -> QueryEngine.removeWhere()
-queryEngine.invalidateTable() -> QueryEngine.invalidateTable()
-queryEngine.invalidateAll() -> QueryEngine.invalidateAll()
-queryEngine.getCacheStats() -> QueryEngine.getCacheStats()
+queryEngine.query()              -> QueryEngine.query()
+queryEngine.querySingle()        -> QueryEngine.querySingle()
+queryEngine.queryPaginated()     -> QueryEngine.queryPaginated()
+queryEngine.queryPaginatedCursor() -> QueryEngine.queryPaginatedCursor()
+queryEngine.queryCount()         -> QueryEngine.queryCount()
+queryEngine.createInfiniteScroll() -> QueryEngine.createInfiniteScroll()
+queryEngine.optimisticUpdate()   -> QueryEngine.optimisticUpdate()
+queryEngine.create()             -> QueryEngine.create()
+queryEngine.createMany()         -> QueryEngine.createMany()
+queryEngine.update()             -> QueryEngine.update()
+queryEngine.updateWhere()        -> QueryEngine.updateWhere()
+queryEngine.upsert()             -> QueryEngine.upsert()
+queryEngine.remove()             -> QueryEngine.remove()
+queryEngine.removeWhere()        -> QueryEngine.removeWhere()
+queryEngine.invalidateTable()    -> QueryEngine.invalidateTable()
+queryEngine.invalidateAll()      -> QueryEngine.invalidateAll()
+queryEngine.getCacheStats()      -> QueryEngine.getCacheStats()
 ```
 
 ## ai_instructions
@@ -156,6 +179,8 @@ queryEngine.getCacheStats() -> QueryEngine.getCacheStats()
 - Use `queryEngine` for most read operations that can benefit from caching
 - Use for list/detail views in UI applications
 - Use for API endpoints that serve relatively static data
+- Use `queryPaginatedCursor()` or `createInfiniteScroll()` for large datasets (>1000 rows)
+- Use `optimisticUpdate()` for non-critical UI interactions that need immediate feedback
 
 ### when NOT to use
 - Don't use for real-time data (use subscriptions instead)

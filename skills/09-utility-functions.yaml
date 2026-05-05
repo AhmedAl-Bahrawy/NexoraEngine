@@ -1,0 +1,86 @@
+id: nexora.utility-functions
+name: Utility Functions
+category: utilities
+description: Common utility functions for validation, formatting, and rate limiting
+intent:
+  what: Provides helper functions for input validation, data formatting, and rate limiting
+  why: Reduces boilerplate and provides standardized utilities for the SDK
+functions:
+  - name: isValidEmail
+    params: [{ name: email, type: string }]
+    returns: boolean
+    description: Validates email format
+    
+  - name: validatePassword
+    params: [{ name: password, type: string }]
+    returns: { isValid: boolean, errors: string[], strength: string }
+    description: Validates password strength
+    
+  - name: validateFileType
+    params: [{ name: file, type: File }, { name: allowedTypes, type: string[] }]
+    returns: boolean
+    description: Validates file MIME type
+    
+  - name: validateFileSize
+    params: [{ name: file, type: File }, { name: maxSizeBytes, type: number }]
+    returns: boolean
+    description: Validates file size limit
+    
+  - name: formatDate
+    params: [{ name: date, type: "string | Date" }, { name: format, type: string, default: short }]
+    returns: string
+    description: Formats dates for display
+    
+  - name: formatDateTime
+    params: [{ name: date, type: "string | Date" }]
+    returns: string
+    description: Formats date and time
+    
+  - name: formatFileSize
+    params: [{ name: bytes, type: number }]
+    returns: string
+    description: Formats bytes to human-readable size
+    
+  - name: truncateText
+    params: [{ name: text, type: string }, { name: maxLength, type: number }]
+    returns: string
+    description: Truncates text with ellipsis
+    
+  - name: slugify
+    params: [{ name: text, type: string }]
+    returns: string
+    description: Converts text to URL-friendly slug
+    
+  - name: RateLimiter
+    type: class
+    description: Rate limiter for controlling request rates
+    methods:
+      - name: check
+        params: [{ name: identifier, type: string }]
+        returns: { allowed: boolean, remaining: number, resetAt: number }
+      - name: consume
+        params: [{ name: identifier, type: string }]
+        returns: boolean
+      - name: reset
+        params: [{ name: identifier, type: string, optional: true }]
+        
+  - name: rateLimit
+    params: [{ name: identifier, type: string }, { name: config, type: object, optional: true }]
+    returns: { allowed: boolean, remaining: number, resetAt: number }
+    description: Simple rate limit function
+
+usage:
+  - Input validation with isValidEmail, validatePassword
+  - File validation with validateFileType, validateFileSize
+  - Data formatting with formatDate, formatFileSize
+  - Rate limiting with RateLimiter class
+
+integration:
+  - Validators work with ValidationError and Zod schemas
+  - Formatters work with database query results
+  - Rate limiting protects routes with auth middleware
+
+metadata:
+  complexity: low
+  stability: stable
+  sdk_layer: utilities

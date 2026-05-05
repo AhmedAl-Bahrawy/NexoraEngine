@@ -4,14 +4,16 @@ This directory contains machine-readable documentation for AI agents to understa
 
 ## Structure
 
-- `architecture.md` - System architecture and component relationships
-- `auth.md` - Authentication system reference
-- `database.md` - Database query engine and operations reference  
-- `cache.md` - Caching system reference
-- `storage.md` - Storage operations reference
-- `utilities.md` - Utility functions reference
-- `constants.md` - Configuration constants reference
-- `extension-guide.md` - How to extend the system
+- `01-query-engine.*` - Query Engine, QueryBuilder, and filter operators
+- `02-crud-operations.*` - Create, read, update, delete operations
+- `03-caching-system.*` - Cache management and invalidation
+- `04-validation-system.*` - Data validation with Zod
+- `05-auth-system.*` - Authentication and authorization
+- `06-error-handling.*` - Error types and handling strategies
+- `07-sdk-architecture.*` - Library structure and design
+- `08-performance-optimization.*` - Optimization techniques
+- `09-utility-functions.*` - Helper functions and formatters
+- `10-infinite-scroll.*` - Infinite scroll, cursor pagination, and optimistic updates
 
 ## Usage
 
@@ -21,3 +23,5 @@ AI agents should read these files to understand:
 3. Error handling patterns
 4. Caching behavior
 5. Configuration requirements
+6. Infinite scroll and cursor-based pagination patterns
+7. Optimistic update strategies
