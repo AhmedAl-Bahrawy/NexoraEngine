@@ -3,8 +3,21 @@
 A universal backend SDK built on Supabase. Build any application without rewriting backend logic.
 
 [![npm version](https://badge.fury.io/js/nexora-engine.svg)](https://www.npmjs.com/package/nexora-engine)
+[![npm downloads](https://img.shields.io/npm/dm/nexora-engine.svg)](https://www.npmjs.com/package/nexora-engine)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![GitHub](https://img.shields.io/badge/GitHub-AhmedAl--Bahrawy/NexoraEngine-blue)](https://github.com/AhmedAl-Bahrawy/NexoraEngine)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
+[![Supabase](https://img.shields.io/badge/Supabase-v2-orange.svg)](https://supabase.com/)
+
+## 📦 Published on npm
+
+Nexora Engine is now available on npm! Install it in your project:
+
+```bash
+npm install nexora-engine
+```
+
+**npm package:** [`nexora-engine`](https://www.npmjs.com/package/nexora-engine)
 
 ## Table of Contents
 
@@ -1754,6 +1767,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Support
 
+- **npm Package**: [`nexora-engine`](https://www.npmjs.com/package/nexora-engine)
 - Documentation: [GitHub Wiki](https://github.com/AhmedAl-Bahrawy/NexoraEngine/wiki)
 - Issues: [GitHub Issues](https://github.com/AhmedAl-Bahrawy/NexoraEngine/issues)
 - Discussions: [GitHub Discussions](https://github.com/AhmedAl-Bahrawy/NexoraEngine/discussions)
