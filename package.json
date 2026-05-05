@@ -1,6 +1,6 @@
 {
   "name": "nexora-engine",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Nexora Engine - A universal backend SDK built on Supabase. Build any application without rewriting backend logic.",
   "type": "module",
   "main": "./dist/lib/index.js",
