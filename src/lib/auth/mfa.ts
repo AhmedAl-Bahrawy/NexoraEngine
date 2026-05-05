@@ -1,20 +1,15 @@
-/**
- * MFA (Multi-Factor Authentication)
- * TOTP and Phone-based MFA operations
- */
-
-import { supabase } from './client'
+import { getSupabaseClient } from './client'
 import { handleSupabaseError } from '../utils/errors'
+import { withRetry } from '../utils/retry'
 import type { Factor } from '@supabase/supabase-js'
 
-// Types
 export interface MFAEnrollResult {
   id: string
   type: 'totp'
   friendlyName: string
-  qrCode: string // QR code for authenticator app
-  secret: string // Secret for manual entry
-  uri: string // Full TOTP URI
+  qrCode: string
+  secret: string
+  uri: string
 }
 
 export interface MFAVerifyResult {
@@ -23,94 +18,95 @@ export interface MFAVerifyResult {
   refreshToken: string
 }
 
-// Enroll TOTP factor
-export async function enrollTOTP(friendlyName = 'Authenticator App'): Promise<MFAEnrollResult> {
-  const { data, error } = await supabase.auth.mfa.enroll({
-    factorType: 'totp',
-    friendlyName,
-  })
+async function executeMfaQuery(fn: () => Promise<any>): Promise<any> {
+  return withRetry(async () => {
+    const result = await fn()
+    if (result.error) throw result.error
+    return result
+  }, { retries: 2, delay: 1000 })
+}
 
-  if (error) throw handleSupabaseError(error)
+export async function enrollTOTP(friendlyName = 'Authenticator App'): Promise<MFAEnrollResult> {
+  const supabase = getSupabaseClient()
+  const result = await executeMfaQuery(
+    () => supabase.auth.mfa.enroll({
+      factorType: 'totp',
+      friendlyName,
+    })
+  )
 
   return {
-    id: data.id,
+    id: result.data.id,
     type: 'totp',
-    friendlyName: data.friendly_name || 'Authenticator App',
-    qrCode: data.totp.qr_code,
-    secret: data.totp.secret,
-    uri: data.totp.uri,
+    friendlyName: result.data.friendly_name ?? 'Authenticator App',
+    qrCode: result.data.totp.qr_code,
+    secret: result.data.totp.secret,
+    uri: result.data.totp.uri,
   }
 }
 
-// Challenge MFA (start verification)
 export async function challengeMFA(factorId: string): Promise<{ id: string; expires_at: number }> {
-  const { data, error } = await supabase.auth.mfa.challenge({ factorId })
-  if (error) throw handleSupabaseError(error)
-  return data
+  const supabase = getSupabaseClient()
+  const result = await executeMfaQuery(
+    () => supabase.auth.mfa.challenge({ factorId })
+  )
+  return result.data
 }
 
-// Verify MFA code
 export async function verifyMFA(
   factorId: string,
   code: string,
   challengeId?: string
 ): Promise<MFAVerifyResult> {
-  const verifyParams: { factorId: string; code: string; challengeId?: string } = {
-    factorId,
-    code,
-  }
-  
-  if (challengeId) {
-    verifyParams.challengeId = challengeId
-  }
-
-  const { data, error } = await supabase.auth.mfa.verify(verifyParams as any)
-  if (error) throw handleSupabaseError(error)
+  const supabase = getSupabaseClient()
+  const result = await executeMfaQuery(
+    () => (supabase.auth.mfa as any).verify({ factorId, code, challengeId })
+  )
 
   return {
     user: {
-      id: data.user.id,
-      factors: data.user.factors || [],
+      id: result.data.user.id,
+      factors: result.data.user.factors ?? [],
     },
-    accessToken: data.access_token,
-    refreshToken: data.refresh_token,
+    accessToken: result.data.access_token,
+    refreshToken: result.data.refresh_token,
   }
 }
 
-// Unenroll factor
 export async function unenrollMFA(factorId: string): Promise<void> {
+  const supabase = getSupabaseClient()
   const { error } = await supabase.auth.mfa.unenroll({ factorId })
   if (error) throw handleSupabaseError(error)
 }
 
-// List enrolled factors
 export async function listMFAFactors(): Promise<{
   all: Factor[]
   totp: Factor[]
   phone: Factor[]
 }> {
+  const supabase = getSupabaseClient()
   const { data, error } = await supabase.auth.mfa.listFactors()
   if (error) throw handleSupabaseError(error)
 
   return {
-    all: [...(data.totp || []), ...(data.phone || [])],
-    totp: data.totp || [],
-    phone: data.phone || [],
+    all: [...(data.totp ?? []), ...(data.phone ?? [])],
+    totp: data.totp ?? [],
+    phone: data.phone ?? [],
   }
 }
 
-// Get authenticator assurance level
 export async function getAuthenticatorAssuranceLevel(): Promise<{
   currentLevel: 'aal1' | 'aal2' | null
   nextLevel: 'aal1' | 'aal2' | null
   currentAuthenticationMethods: Array<{ method: string; timestamp: number }>
 }> {
+  const supabase = getSupabaseClient()
   const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
   if (error) throw handleSupabaseError(error)
 
   return {
     currentLevel: data.currentLevel,
     nextLevel: data.nextLevel,
-    currentAuthenticationMethods: (data.currentAuthenticationMethods || []) as Array<{ method: string; timestamp: number }>,
+    currentAuthenticationMethods: (data.currentAuthenticationMethods ?? []) as Array<{ method: string; timestamp: number }>,
   }
 }

@@ -1,5 +1,3 @@
-import type { PostgrestFilterBuilder } from '@supabase/supabase-js'
-
 export type FilterOperator =
   | 'eq'
   | 'neq'
@@ -48,9 +46,7 @@ export interface QueryConfig<T = unknown> {
   foreignTables?: string[]
 }
 
-export type PostgrestQueryBuilder = PostgrestFilterBuilder<unknown, unknown, unknown, unknown, string, unknown>
-
-export function applyFilters(query: PostgrestQueryBuilder, filters: Filter[]): PostgrestQueryBuilder {
+export function applyFilters(query: any, filters: Filter[]): any {
   let result = query
 
   for (const filter of filters) {
@@ -60,22 +56,22 @@ export function applyFilters(query: PostgrestQueryBuilder, filters: Filter[]): P
   return result
 }
 
-function applySingleFilter(query: PostgrestQueryBuilder, filter: Filter): PostgrestQueryBuilder {
+function applySingleFilter(query: any, filter: Filter): any {
   const { column, operator, value } = filter
 
   switch (operator) {
     case 'eq':
-      return query.eq(column, value as string)
+      return query.eq(column, value)
     case 'neq':
-      return query.neq(column, value as string)
+      return query.neq(column, value)
     case 'gt':
-      return query.gt(column, value as string)
+      return query.gt(column, value)
     case 'gte':
-      return query.gte(column, value as string)
+      return query.gte(column, value)
     case 'lt':
-      return query.lt(column, value as string)
+      return query.lt(column, value)
     case 'lte':
-      return query.lte(column, value as string)
+      return query.lte(column, value)
     case 'like':
       return query.like(column, value as string)
     case 'ilike':
@@ -89,7 +85,7 @@ function applySingleFilter(query: PostgrestQueryBuilder, filter: Filter): Postgr
     case 'contained':
       return query.containedBy(column, value as Record<string, unknown> | unknown[])
     case 'overlap':
-      return query.overlap(column, value as unknown[])
+      return query.overlaps(column, value as unknown[])
     case 'match':
       return query.match(value as Record<string, unknown>)
     case 'not':
@@ -99,7 +95,7 @@ function applySingleFilter(query: PostgrestQueryBuilder, filter: Filter): Postgr
   }
 }
 
-export function applySort(query: PostgrestQueryBuilder, sorts: SortConfig[]): PostgrestQueryBuilder {
+export function applySort(query: any, sorts: SortConfig[]): any {
   let result = query
 
   for (const sort of sorts) {
@@ -114,9 +110,9 @@ export function applySort(query: PostgrestQueryBuilder, sorts: SortConfig[]): Po
 }
 
 export function applyPagination(
-  query: PostgrestQueryBuilder,
+  query: any,
   pagination: PaginationConfig
-): PostgrestQueryBuilder {
+): any {
   const offset = pagination.offset ?? 0
   return query.range(offset, offset + pagination.limit - 1)
 }

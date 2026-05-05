@@ -18,6 +18,7 @@ export interface CacheStats {
 }
 
 export class QueryCache {
+  private static instance: QueryCache | null = null
   private store: Map<string, CacheEntry<unknown>>
   private defaultTTL: number
   private maxEntries: number
@@ -30,6 +31,17 @@ export class QueryCache {
     this.maxEntries = options.maxEntries ?? 500
     this.totalHits = 0
     this.totalMisses = 0
+  }
+
+  static getInstance(options?: CacheOptions): QueryCache {
+    if (!QueryCache.instance) {
+      QueryCache.instance = new QueryCache(options)
+    }
+    return QueryCache.instance
+  }
+
+  static resetInstance(): void {
+    QueryCache.instance = null
   }
 
   get<T>(key: string): T | null {

@@ -1,0 +1,190 @@
+id: cache
+name: Caching System
+category: core
+description: TTL-based query caching with stable key derivation, automatic invalidation on mutations, LRU-like eviction, request deduplication, and pattern-based cache clearing.
+intent:
+  what: Provides a singleton caching layer for database query results with configurable TTL, automatic invalidation, and request deduplication.
+  why: Reduces database load, improves response times, prevents redundant concurrent queries, and ensures data freshness through automatic expiration and mutation-triggered invalidation.
+inputs:
+  - name: key
+    type: string
+    required: true
+    description: Cache key derived from query parameters via CacheKey utilities
+  - name: data
+    type: any
+    required: true
+    description: Data to cache (query results)
+  - name: ttl
+    type: number
+    required: false
+    description: Time-to-live in milliseconds (default: 300000 / 5 minutes)
+  - name: options
+    type: CacheOptions
+    required: false
+    description: Cache configuration including defaultTTL and maxEntries
+outputs:
+  type: T | null | boolean | number | CacheStats | string[]
+  description: Cached data (or null if expired), invalidation count, cache statistics, or list of valid keys
+usage:
+  steps:
+    - Use QueryCache.getInstance() to get singleton instance
+    - Use CacheKey.fromQuery() to derive stable cache keys from query parameters
+    - Cache query results with set() and appropriate TTL
+    - Retrieve cached data with get() (returns null if expired)
+    - Invalidate cache after mutations using invalidatePattern() with table prefix
+    - Monitor cache performance with getStats()
+  examples:
+    - description: Cache a query result
+      code: |
+        import { QueryCache, CacheKey } from '@/lib'
+
+        const cache = QueryCache.getInstance()
+        const key = CacheKey.fromQuery('users', {
+          filters: [{ column: 'status', operator: 'eq', value: 'active' }],
+          orderBy: [{ column: 'created_at', ascending: false }],
+          limit: 20,
+        })
+
+        // Check cache first
+        const cached = cache.get(key)
+        if (cached) return cached
+
+        // Execute query and cache result
+        const result = await fetchAll('users', { filters: [...], limit: 20 })
+        cache.set(key, result, 60000) // 1 minute TTL
+        return result
+    - description: Invalidate cache after mutation
+      code: |
+        import { QueryCache, CacheKey, insertOne } from '@/lib'
+
+        // Insert automatically invalidates cache
+        const newUser = await insertOne('users', { name: 'John', email: 'john@example.com' })
+        // Cache automatically invalidated for 'users' table
+
+        // Manual invalidation if needed
+        const cache = QueryCache.getInstance()
+        cache.invalidatePattern(CacheKey.tablePrefix('users'))
+    - description: Monitor cache performance
+      code: |
+        import { QueryCache } from '@/lib'
+
+        const cache = QueryCache.getInstance()
+        const stats = cache.getStats()
+        console.log(`Cache: ${stats.size} entries, ${stats.hitRate.toFixed(2)} hit rate`)
+        console.log(`Hits: ${stats.hits}, Misses: ${stats.misses}`)
+logic:
+  summary: QueryCache is a singleton that stores query results with TTL-based expiration. Keys are derived stably from query parameters using JSON stringification. Automatic LRU-like eviction removes oldest entries when max capacity is reached. Request deduplication in QueryEngine prevents concurrent duplicate queries. Mutations trigger automatic cache invalidation for affected tables.
+  flow:
+    - step: 1
+      action: Cache key derivation
+      detail: CacheKey.fromQuery() creates deterministic key from table, filters, sort, pagination
+    - step: 2
+      action: Cache lookup
+      detail: get() checks store for key, verifies expiration, returns data or null
+    - step: 3
+      action: Cache miss handling
+      detail: If null, execute query, store result with set(), return data
+    - step: 4
+      action: Cache hit handling
+      detail: If found and not expired, increment hits counter, return cached data
+    - step: 5
+      action: Mutation invalidation
+      detail: After mutation, invalidatePattern() removes all keys matching table prefix
+    - step: 6
+      action: Eviction
+      detail: When maxEntries reached, remove 20% of oldest entries by expiration time
+    - step: 7
+      action: Request deduplication
+      detail: QueryEngine.pendingQueries Map ensures concurrent identical queries execute once
+constraints:
+  rules:
+    - Default TTL is 5 minutes (300000ms); override per-query as needed
+    - Maximum cache entries is 500; eviction removes 20% of oldest when exceeded
+    - Cache keys must be deterministic; use CacheKey utilities for derivation
+    - All mutations must invalidate cache unless explicitly disabled
+    - Request deduplication only applies to concurrent identical queries within QueryEngine
+    - Expired entries are lazily removed on access and during eviction
+  anti_patterns:
+    - Do not cache mutation results (only queries should be cached)
+    - Do not use static keys for dynamic queries (use CacheKey.fromQuery)
+    - Do not disable cache invalidation after mutations without understanding consequences
+    - Do not store large objects in cache without considering memory impact
+    - Do not rely on cache for critical data that must always be fresh
+    - Do not create multiple QueryCache instances (use singleton)
+dependencies:
+  internal:
+    - architecture
+    - database
+  external: []
+code_mapping:
+  files:
+    - src/lib/cache/cache.ts
+    - src/lib/cache/keys.ts
+    - src/lib/cache/index.ts
+    - src/lib/query-engine/engine.ts
+  functions:
+    - name: QueryCache.getInstance
+      signature: (options?: CacheOptions) => QueryCache
+      description: Gets or creates singleton cache instance
+    - name: QueryCache.resetInstance
+      signature: () => void
+      description: Resets singleton (primarily for testing)
+    - name: get
+      signature: '<T>(key: string) => T | null'
+      description: Retrieves cached value, returns null if expired or missing
+    - name: set
+      signature: '<T>(key: string, data: T, ttl?: number) => void'
+      description: Stores value with optional TTL
+    - name: invalidate
+      signature: (key: string) => boolean
+      description: Removes specific cache key
+    - name: invalidatePattern
+      signature: (pattern: string | RegExp) => number
+      description: Removes all keys matching pattern, returns count removed
+    - name: invalidateAll
+      signature: () => void
+      description: Clears all cache entries
+    - name: has
+      signature: (key: string) => boolean
+      description: Checks if key exists and is not expired
+    - name: getStats
+      signature: () => CacheStats
+      description: Returns cache statistics (size, hits, misses, hitRate)
+    - name: keys
+      signature: () => string[]
+      description: Returns all valid (non-expired) cache keys
+    - name: CacheKey.fromQuery
+      signature: (table: string, options?: { select?: string; filters?: unknown; orderBy?: unknown[]; limit?: number; offset?: number; range?: { from: number; to: number } }) => string
+      description: Derives cache key from query parameters
+    - name: CacheKey.tablePrefix
+      signature: (table: string) => string
+      description: Returns prefix pattern for table-based invalidation
+    - name: CacheKey.forTable
+      signature: (table: string, id?: string) => string
+      description: Creates key for specific table or record
+    - name: CacheKey.forMutation
+      signature: (table: string) => string[]
+      description: Returns invalidation patterns for mutations
+ai_instructions:
+  when_to_use:
+    - When caching database query results to reduce database load
+    - When implementing request deduplication for concurrent identical queries
+    - When needing automatic cache invalidation after data mutations
+    - When monitoring cache performance for optimization
+    - When deriving stable cache keys from dynamic query parameters
+  when_not_to_use:
+    - When caching user-specific data that varies per session (use user-scoped keys)
+    - When data must always be real-time (disable cache with useCache: false)
+    - When storing sensitive data that should not persist in memory
+    - When cache size exceeds available memory (reduce maxEntries)
+  reasoning_steps:
+    - Determine if query result is cacheable (read-only, not user-specific)
+    - Choose appropriate TTL based on data freshness requirements
+    - Use CacheKey.fromQuery() for deterministic key generation
+    - Enable cache by default; disable only when real-time data is required
+    - Ensure mutations invalidate related cache automatically
+    - Monitor hit rate to optimize TTL and cache size settings
+    - Use invalidatePattern() for targeted cache clearing after mutations
+metadata:
+  complexity: medium
+  stability: stable

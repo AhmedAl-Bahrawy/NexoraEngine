@@ -1,13 +1,7 @@
-/**
- * Realtime Subscriptions
- * Live data updates from Supabase realtime
- */
-
-import { supabase } from './client'
+import { getSupabaseClient } from '../auth/client'
 import { REALTIME } from '../constants/supabase'
 import type { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js'
 
-// Types
 export type RealtimeEvent = 'INSERT' | 'UPDATE' | 'DELETE' | '*'
 
 export interface RealtimeChange<T> {
@@ -31,19 +25,39 @@ export interface SubscriptionCallbacks<T> {
   onError?: (error: Error) => void
 }
 
-// Subscribe to table changes
-export function subscribeToTable<T extends Record<string, any>>(
+export interface SubscriptionHandle {
+  channel: RealtimeChannel
+  unsubscribe: () => Promise<void>
+}
+
+const activeChannels = new Map<string, RealtimeChannel>()
+
+export function subscribeToTable<T extends Record<string, unknown>>(
   config: SubscriptionConfig,
   callbacks: SubscriptionCallbacks<T>
-): RealtimeChannel {
+): SubscriptionHandle {
   const { table, event = '*', filter, schema = 'public' } = config
+  const supabase = getSupabaseClient()
 
-  const channel = supabase
+  const channelKey = `${schema}.${table}:${event}:${filter ?? ''}`
+
+  if (activeChannels.has(channelKey)) {
+    const existing = activeChannels.get(channelKey)!
+    return {
+      channel: existing,
+      unsubscribe: async () => {
+        await supabase.removeChannel(existing)
+        activeChannels.delete(channelKey)
+      },
+    }
+  }
+
+  const channel = (supabase as any)
     .channel(`${table}_changes_${Date.now()}`)
     .on(
-      'postgres_changes' as const,
+      'postgres_changes',
       {
-        event: event as any,
+        event,
         schema,
         table,
         filter,
@@ -74,42 +88,42 @@ export function subscribeToTable<T extends Record<string, any>>(
         }
       }
     )
-    .subscribe((status) => {
+    .subscribe((status: string) => {
       if (status === REALTIME.SUBSCRIBE_STATES.CHANNEL_ERROR && callbacks.onError) {
         callbacks.onError(new Error('Realtime subscription error'))
       }
     })
 
-  return channel
-}
+  activeChannels.set(channelKey, channel)
 
-// Subscribe with auto-cleanup
-export function useSubscription<T extends Record<string, any>>(
-  config: SubscriptionConfig,
-  callbacks: SubscriptionCallbacks<T>,
-  options?: { enabled?: boolean }
-): () => void {
-  if (options?.enabled === false) {
-    return () => {}
-  }
-
-  const channel = subscribeToTable(config, callbacks)
-
-  // Return cleanup function
-  return () => {
-    supabase.removeChannel(channel)
+  return {
+    channel,
+    unsubscribe: async () => {
+      await supabase.removeChannel(channel)
+      activeChannels.delete(channelKey)
+    },
   }
 }
 
-// Broadcast channel (for cross-tab communication)
+export function subscribeToTables<T extends Record<string, unknown>>(
+  configs: Array<{ config: SubscriptionConfig; callbacks: SubscriptionCallbacks<T> }>,
+): Array<SubscriptionHandle> {
+  return configs.map(({ config, callbacks }) => subscribeToTable<T>(config, callbacks))
+}
+
+export function getActiveSubscriptions(): string[] {
+  return Array.from(activeChannels.keys())
+}
+
 export function createBroadcastChannel(channelName: string) {
+  const supabase = getSupabaseClient()
   const channel = supabase.channel(channelName)
 
   return {
     subscribe: (callback: (payload: { event: string; payload: unknown }) => void) => {
       channel
         .on('broadcast', { event: '*' }, (payload) => {
-          callback((payload as unknown) as { event: string; payload: unknown })
+          callback(payload as unknown as { event: string; payload: unknown })
         })
         .subscribe()
 
@@ -125,11 +139,15 @@ export function createBroadcastChannel(channelName: string) {
         payload,
       })
     },
+
+    unsubscribe: () => {
+      supabase.removeChannel(channel)
+    },
   }
 }
 
-// Presence (for tracking online users)
 export function createPresenceChannel(channelName: string) {
+  const supabase = getSupabaseClient()
   const channel = supabase.channel(channelName)
 
   return {
@@ -175,15 +193,28 @@ export function createPresenceChannel(channelName: string) {
     untrack: async () => {
       await channel.untrack()
     },
+
+    unsubscribe: () => {
+      supabase.removeChannel(channel)
+    },
   }
 }
 
-// Unsubscribe helper
-export async function unsubscribe(channel: RealtimeChannel): Promise<void> {
-  await supabase.removeChannel(channel)
+export async function unsubscribe(handle: SubscriptionHandle | RealtimeChannel): Promise<void> {
+  const supabase = getSupabaseClient()
+  if ('unsubscribe' in handle) {
+    await handle.unsubscribe()
+  } else {
+    await supabase.removeChannel(handle)
+  }
 }
 
-// Unsubscribe all channels
 export async function unsubscribeAll(): Promise<void> {
+  const supabase = getSupabaseClient()
+  const handles = Array.from(activeChannels.values())
+  for (const channel of handles) {
+    await supabase.removeChannel(channel)
+  }
+  activeChannels.clear()
   await supabase.removeAllChannels()
 }

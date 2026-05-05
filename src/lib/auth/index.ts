@@ -1,22 +1,21 @@
-/**
- * Auth Barrel Export
- * Central export for all authentication functionality
- */
-
-// Client
 export {
   supabase,
   type SupabaseClient,
   type User,
   type Session,
   type SupabaseAuthError,
+  type SupabaseConfig,
+  createSupabaseClient,
+  initializeSupabase,
+  getSupabaseClient,
+  isSupabaseInitialized,
 } from './client'
 
-// Operations
 export {
   type SignInCredentials,
   type SignUpCredentials,
   type AuthResult,
+  type OAuthOptions,
   signInWithPassword,
   signUp,
   signOut,
@@ -33,9 +32,10 @@ export {
   exchangeCodeForSession,
   signInAnonymously,
   linkAnonymousAccount,
+  verifyOTP,
+  onAuthStateChange,
 } from './operations'
 
-// MFA
 export {
   type MFAEnrollResult,
   type MFAVerifyResult,
@@ -47,10 +47,12 @@ export {
   getAuthenticatorAssuranceLevel,
 } from './mfa'
 
-// Admin (server-side only)
 export {
   type CreateUserParams,
   type ListUsersResult,
+  type AdminUpdateParams,
+  type InviteOptions,
+  type GenerateLinkOptions,
   createUser,
   deleteUser,
   getUserById,
@@ -59,3 +61,17 @@ export {
   inviteUserByEmail,
   generateLink,
 } from './admin'
+
+export {
+  type AuthContext,
+  type AuthMiddlewareOptions,
+  enforceAuth,
+  requireAuth,
+  requireRole,
+  requireAnyRole,
+  requireVerifiedEmail,
+  withAuth,
+  hasRole,
+  hasAnyRole,
+  isAdmin,
+} from './middleware'

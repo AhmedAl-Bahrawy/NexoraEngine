@@ -1,3 +1,5 @@
+import type { SupabaseClient as SupabaseClientType } from '@supabase/supabase-js'
+
 export type Json =
   | string
   | number
@@ -6,10 +8,13 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
+export type SupabaseClient = SupabaseClientType
+
 export type GenericRow<T = Record<string, unknown>> = {
-  id: string
+  id?: string
   created_at?: string
   updated_at?: string
+  deleted_at?: string | null
 } & T
 
 export interface PaginationParams {

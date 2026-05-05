@@ -125,14 +125,14 @@ export function validateFile(
 export function validateImage(file: File): FileValidationResult {
   return validateFile(file, {
     maxSize: 5 * 1024 * 1024, // 5MB for images
-    allowedTypes: STORAGE.ALLOWED_IMAGE_TYPES,
+    allowedTypes: ['image/jpeg', 'image/png', 'image/gif'],
   })
 }
 
 export function validateDocument(file: File): FileValidationResult {
   return validateFile(file, {
     maxSize: 10 * 1024 * 1024, // 10MB for documents
-    allowedTypes: STORAGE.ALLOWED_DOCUMENT_TYPES,
+    allowedTypes: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
   })
 }
 
@@ -160,7 +160,7 @@ export function validatePagination(
   return {
     page: Math.max(1, Math.floor(page)),
     pageSize: Math.min(
-      DATABASE.MAX_PAGE_SIZE,
+      DATABASE.PAGINATION.MAX_PAGE_SIZE,
       Math.max(1, Math.floor(pageSize))
     ),
   }

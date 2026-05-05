@@ -1,4 +1,4 @@
-import type { SupabaseClient } from '../auth/client'
+import { getSupabaseClient } from '../auth/client'
 import {
   applyFilters,
   applySort,
@@ -12,10 +12,8 @@ import { handleSupabaseError } from '../utils/errors'
 
 export class QueryBuilder<T = unknown> {
   private config: QueryConfig<T>
-  private client: SupabaseClient
 
-  constructor(client: SupabaseClient, table: string) {
-    this.client = client
+  constructor(table: string) {
     this.config = {
       table,
       schema: 'public',
@@ -138,9 +136,10 @@ export class QueryBuilder<T = unknown> {
   }
 
   async execute(): Promise<T[]> {
+    const supabase = getSupabaseClient()
     const countOption = this.config.head ? { count: this.config.count, head: true } : { count: this.config.count }
 
-    let query = this.client
+    let query = (supabase as any)
       .from(this.config.table)
       .select(this.config.columns ?? '*', countOption)
 
@@ -170,9 +169,10 @@ export class QueryBuilder<T = unknown> {
   }
 
   async executeSingle(): Promise<T | null> {
+    const supabase = getSupabaseClient()
     const countOption = this.config.count ? { count: this.config.count } : undefined
 
-    let query = this.client
+    let query = (supabase as any)
       .from(this.config.table)
       .select(this.config.columns ?? '*', countOption)
 
@@ -195,7 +195,8 @@ export class QueryBuilder<T = unknown> {
   }
 
   async executeCount(): Promise<number> {
-    let query = this.client
+    const supabase = getSupabaseClient()
+    let query = (supabase as any)
       .from(this.config.table)
       .select('*', { count: 'exact', head: true })
 
@@ -211,6 +212,6 @@ export class QueryBuilder<T = unknown> {
   }
 }
 
-export function createQuery<T = unknown>(client: SupabaseClient, table: string): QueryBuilder<T> {
-  return new QueryBuilder<T>(client, table)
+export function createQuery<T = unknown>(table: string): QueryBuilder<T> {
+  return new QueryBuilder<T>(table)
 }

@@ -1,21 +1,31 @@
-/**
- * Database Queries
- * Fetch, filter, and retrieve data from Supabase tables
- */
-
-import { supabase } from './client'
-import { handleSupabaseError } from '../utils/errors'
-import { validatePagination } from '../utils/validators'
+import type { GenericRow } from '../../types'
+import { getSupabaseClient } from '../auth/client'
+import { CacheKey, QueryCache } from '../cache'
+import { DatabaseError, handleSupabaseError } from '../utils/errors'
+import { withRetry } from '../utils/retry'
+import { validateInput, type AnyZodSchema } from '../utils/validate'
 import { DATABASE } from '../constants/supabase'
 
-// Types
+export interface FilterCondition {
+  column: string
+  operator: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'like' | 'ilike' | 'in' | 'contains' | 'containedBy' | 'overlap' | 'is' | 'match'
+  value: unknown
+}
+
 export interface QueryOptions {
-  columns?: string
-  filter?: (query: any) => any
-  order?: { column: string; ascending?: boolean }
+  select?: string
+  filters?: FilterCondition[]
+  orderBy?: { column: string; ascending?: boolean }[]
   limit?: number
   offset?: number
-  single?: boolean
+  range?: { from: number; to: number }
+  headers?: Record<string, string>
+  ttl?: number
+  useCache?: boolean
+  timeout?: number
+  retries?: number
+  retryDelay?: number
+  validate?: AnyZodSchema
 }
 
 export interface PaginatedQueryOptions extends QueryOptions {
@@ -24,265 +34,481 @@ export interface PaginatedQueryOptions extends QueryOptions {
 }
 
 export interface PaginatedResult<T> {
-  data: T[]
+  data: T[] | null
   count: number
   page: number
   pageSize: number
   totalPages: number
+  hasNextPage: boolean
+  hasPreviousPage: boolean
 }
 
-// Fetch all records from a table
-export async function fetchAll<T>(
+export interface AggregateResult {
+  count?: number
+  sum?: Record<string, number>
+  avg?: Record<string, number>
+  min?: Record<string, unknown>
+  max?: Record<string, unknown>
+}
+
+async function executeQuery(query: any, options?: { timeout?: number; retries?: number; retryDelay?: number }): Promise<any> {
+  const timeoutMs = options?.timeout ?? DATABASE.DEFAULT_TIMEOUT
+
+  const execute = async () => {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+
+    try {
+      const result = await query
+      if (result.error) {
+        throw handleSupabaseError(result.error)
+      }
+      return result
+    } finally {
+      clearTimeout(timeoutId)
+    }
+  }
+
+  const retries = options?.retries ?? DATABASE.DEFAULT_RETRIES
+  const retryDelay = options?.retryDelay ?? DATABASE.RETRY_DELAY
+
+  return withRetry(execute, { retries, delay: retryDelay })
+}
+
+function applyFilters(query: any, filters: FilterCondition[]): any {
+  let result = query
+
+  for (const filter of filters) {
+    const { column, operator, value } = filter
+    switch (operator) {
+      case 'eq':
+        result = result.eq(column, value)
+        break
+      case 'neq':
+        result = result.neq(column, value)
+        break
+      case 'gt':
+        result = result.gt(column, value)
+        break
+      case 'gte':
+        result = result.gte(column, value)
+        break
+      case 'lt':
+        result = result.lt(column, value)
+        break
+      case 'lte':
+        result = result.lte(column, value)
+        break
+      case 'like':
+        result = result.like(column, String(value))
+        break
+      case 'ilike':
+        result = result.ilike(column, String(value))
+        break
+      case 'in':
+        result = result.in(column, value as unknown[])
+        break
+      case 'contains':
+        result = result.contains(column, value)
+        break
+      case 'containedBy':
+        result = result.containedBy(column, value)
+        break
+      case 'overlap':
+        result = result.overlap(column, value)
+        break
+      case 'is':
+        result = result.is(column, value)
+        break
+      case 'match':
+        result = result.match(value as Record<string, unknown>)
+        break
+    }
+  }
+
+  return result
+}
+
+function applySorting(query: any, orderBy: { column: string; ascending?: boolean }[]): any {
+  let result = query
+
+  for (const sort of orderBy) {
+    result = result.order(sort.column, { ascending: sort.ascending ?? false })
+  }
+
+  return result
+}
+
+export async function fetchAll<T extends GenericRow>(
   table: string,
   options?: QueryOptions
-): Promise<T[]> {
-  let query = supabase.from(table).select(options?.columns || '*')
-
-  if (options?.filter) {
-    query = options.filter(query)
+): Promise<{ data: T[] | null; error: Error | null; count: number }> {
+  if (options?.validate) {
+    const result = validateInput(options.filters, options.validate)
+    if (!result.valid) {
+      throw new DatabaseError(`Validation failed: ${result.errors.join(', ')}`, 'validation_error')
+    }
   }
 
-  if (options?.order) {
-    query = query.order(options.order.column, {
-      ascending: options.order.ascending ?? true,
-    })
+  const supabase = getSupabaseClient()
+  let query = supabase.from(table).select(options?.select ?? '*')
+
+  if (options?.filters?.length) {
+    query = applyFilters(query, options.filters)
   }
 
-  if (options?.limit) {
-    query = query.limit(options.limit)
+  if (options?.orderBy?.length) {
+    query = applySorting(query, options.orderBy)
   }
 
-  if (options?.offset) {
-    query = query.range(options.offset, options.offset + (options.limit || 1000) - 1)
+  if (options?.range) {
+    query = (query as any).range(options.range.from, options.range.to)
+  } else {
+    if (options?.limit) query = (query as any).limit(options.limit)
+    if (options?.offset) query = (query as any).offset(options.offset)
   }
 
-  const { data, error } = await query
-  if (error) throw handleSupabaseError(error)
-  return data as T[]
+  const isCached = options?.useCache !== false
+  const cacheKey = isCached ? CacheKey.fromQuery(table, options) : null
+
+  if (isCached && cacheKey) {
+    const cache = QueryCache.getInstance()
+    const cached = cache.get<{ data: T[]; count: number }>(cacheKey)
+    if (cached) {
+      return { data: cached.data, error: null, count: cached.count }
+    }
+  }
+
+  const result = await executeQuery(query, { timeout: options?.timeout, retries: options?.retries, retryDelay: options?.retryDelay })
+
+  if (isCached && cacheKey && !result.error && result.data) {
+    const cache = QueryCache.getInstance()
+    cache.set(cacheKey, { data: result.data, count: result.count }, options?.ttl)
+  }
+
+  return {
+    data: result.data as T[] | null,
+    error: result.error ? new Error(String(result.error)) : null,
+    count: result.count ?? 0,
+  }
 }
 
-// Fetch single record by ID
-export async function fetchById<T>(
+export async function fetchById<T extends GenericRow>(
   table: string,
-  id: string,
-  options?: { columns?: string }
-): Promise<T | null> {
-  const { data, error } = await supabase
-    .from(table)
-    .select(options?.columns || '*')
-    .eq('id', id)
-    .single()
+  id: string | number,
+  options?: Omit<QueryOptions, 'filters' | 'limit' | 'offset' | 'range'>
+): Promise<{ data: T | null; error: Error | null }> {
+  const supabase = getSupabaseClient()
+  let query = supabase.from(table).select(options?.select ?? '*').eq('id', id)
 
-  if (error) {
-    if (error.code === 'PGRST116') return null // Not found
-    throw handleSupabaseError(error)
+  if (options?.orderBy?.length) {
+    query = applySorting(query, options.orderBy)
   }
 
-  return data as T
+  const result = await executeQuery(query, { timeout: options?.timeout, retries: options?.retries, retryDelay: options?.retryDelay })
+
+  return {
+    data: result.data?.[0] ?? null,
+    error: result.error ? new Error(String(result.error)) : null,
+  }
 }
 
-// Fetch with custom filters
-export async function fetchWhere<T>(
+export async function fetchWhere<T extends GenericRow>(
   table: string,
-  conditions: Record<string, unknown>,
-  options?: QueryOptions
-): Promise<T[]> {
-  let query = supabase.from(table).select(options?.columns || '*')
-
-  Object.entries(conditions).forEach(([key, value]) => {
-    query = query.eq(key, value)
-  })
-
-  if (options?.order) {
-    query = query.order(options.order.column, {
-      ascending: options.order.ascending ?? true,
-    })
-  }
-
-  if (options?.limit) {
-    query = query.limit(options.limit)
-  }
-
-  const { data, error } = await query
-  if (error) throw handleSupabaseError(error)
-  return data as T[]
+  filters: FilterCondition[],
+  options?: Omit<QueryOptions, 'filters'>
+): Promise<{ data: T[] | null; error: Error | null; count: number }> {
+  return fetchAll<T>(table, { ...options, filters })
 }
 
-// Paginated query
-export async function fetchPaginated<T>(
+export async function fetchPaginated<T extends GenericRow>(
   table: string,
   options?: PaginatedQueryOptions
 ): Promise<PaginatedResult<T>> {
-  const { page, pageSize } = validatePagination(
-    options?.page || 1,
-    options?.pageSize || DATABASE.DEFAULT_PAGE_SIZE
-  )
+  const page = options?.page ?? DATABASE.PAGINATION.DEFAULT_PAGE
+  const pageSize = options?.pageSize ?? DATABASE.PAGINATION.DEFAULT_PAGE_SIZE
 
+  if (pageSize > DATABASE.PAGINATION.MAX_PAGE_SIZE) {
+    throw new DatabaseError('Page size exceeds maximum allowed', 'validation_error')
+  }
+
+  const supabase = getSupabaseClient()
   const from = (page - 1) * pageSize
   const to = from + pageSize - 1
 
-  let query = supabase
-    .from(table)
-    .select(options?.columns || '*', { count: 'exact' })
+  let query = (supabase.from(table) as any).select(options?.select ?? '*').range(from, to).count('exact')
 
-  if (options?.filter) {
-    query = options.filter(query)
+  if (options?.filters?.length) {
+    query = applyFilters(query, options.filters)
   }
 
-  if (options?.order) {
-    query = query.order(options.order.column, {
-      ascending: options.order.ascending ?? true,
-    })
+  if (options?.orderBy?.length) {
+    query = applySorting(query, options.orderBy)
   }
 
-  const { data, error, count } = await query.range(from, to)
+  const isCached = options?.useCache !== false
+  const cacheKey = isCached ? CacheKey.fromQuery(table, { ...options, range: { from, to } }) : null
 
-  if (error) throw handleSupabaseError(error)
+  let result: any
 
-  const totalPages = Math.ceil((count || 0) / pageSize)
+  if (isCached && cacheKey) {
+    const cache = QueryCache.getInstance()
+    const cached = cache.get<{ data: T[]; count: number }>(cacheKey)
+    if (cached) {
+      result = { data: cached.data, count: cached.count, error: null }
+    } else {
+      result = await executeQuery(query, { timeout: options?.timeout, retries: options?.retries, retryDelay: options?.retryDelay })
+      if (!result.error && result.data) {
+        cache.set(cacheKey, { data: result.data, count: result.count }, options?.ttl)
+      }
+    }
+  } else {
+    result = await executeQuery(query, { timeout: options?.timeout, retries: options?.retries, retryDelay: options?.retryDelay })
+  }
+
+  const count = result.count ?? 0
+  const totalPages = Math.ceil(count / pageSize)
 
   return {
-    data: data as T[],
-    count: count || 0,
+    data: result.data as T[] | null,
+    count,
     page,
     pageSize,
     totalPages,
+    hasNextPage: page < totalPages,
+    hasPreviousPage: page > 1,
   }
 }
 
-// Search with ILIKE (case-insensitive)
-export async function search<T>(
+export async function search<T extends GenericRow>(
   table: string,
   column: string,
-  searchTerm: string,
-  options?: QueryOptions
-): Promise<T[]> {
-  let query = supabase
-    .from(table)
-    .select(options?.columns || '*')
-    .ilike(column, `%${searchTerm}%`)
-
-  if (options?.order) {
-    query = query.order(options.order.column, {
-      ascending: options.order.ascending ?? true,
-    })
-  }
-
-  if (options?.limit) {
-    query = query.limit(options.limit)
-  }
-
-  const { data, error } = await query
-  if (error) throw handleSupabaseError(error)
-  return data as T[]
+  query: string,
+  options?: Omit<QueryOptions, 'filters'>
+): Promise<{ data: T[] | null; error: Error | null; count: number }> {
+  return fetchAll<T>(table, {
+    ...options,
+    filters: [{ column, operator: 'ilike', value: `%${query}%` }],
+  })
 }
 
-// Full text search (requires pg_trgm or tsvector setup)
-export async function fullTextSearch<T>(
+export async function fullTextSearch<T extends GenericRow>(
   table: string,
-  searchColumn: string,
-  searchTerm: string,
-  options?: QueryOptions
-): Promise<T[]> {
-  // This uses the textSearch method from Supabase
-  let query = supabase
-    .from(table)
-    .select(options?.columns || '*')
-    .textSearch(searchColumn, searchTerm)
+  column: string,
+  query: string,
+  options?: Omit<QueryOptions, 'filters'>
+): Promise<{ data: T[] | null; error: Error | null; count: number }> {
+  const supabase = getSupabaseClient()
+  let result = supabase.from(table).select(options?.select ?? '*').textSearch(column, query)
 
-  if (options?.limit) {
-    query = query.limit(options.limit)
+  if (options?.orderBy?.length) {
+    result = applySorting(result, options.orderBy)
   }
 
-  const { data, error } = await query
-  if (error) throw handleSupabaseError(error)
-  return data as T[]
+  if (options?.limit) result = result.limit(options.limit)
+
+  const queryResult = await executeQuery(result, { timeout: options?.timeout, retries: options?.retries, retryDelay: options?.retryDelay })
+
+  return {
+    data: queryResult.data as T[] | null,
+    error: queryResult.error ? new Error(String(queryResult.error)) : null,
+    count: queryResult.count ?? 0,
+  }
 }
 
-// Count records
 export async function count(
   table: string,
-  options?: { filter?: (query: any) => any }
+  filters?: FilterCondition[]
 ): Promise<number> {
-  let query = supabase
-    .from(table)
-    .select('*', { count: 'exact', head: true })
+  const supabase = getSupabaseClient()
+  let query = supabase.from(table).select('*', { count: 'exact', head: true })
 
-  if (options?.filter) {
-    query = options.filter(query)
+  if (filters?.length) {
+    query = applyFilters(query, filters)
   }
 
-  const { count, error } = await query
-  if (error) throw handleSupabaseError(error)
-  return count || 0
+  const result = await executeQuery(query)
+  return result.count ?? 0
 }
 
-// Check if record exists
 export async function exists(
   table: string,
-  conditions: Record<string, unknown>
+  filters: FilterCondition[]
 ): Promise<boolean> {
-  let query = supabase
-    .from(table)
-    .select('id', { count: 'exact', head: true })
+  const supabase = getSupabaseClient()
+  let query = supabase.from(table).select('id').limit(1)
+  query = applyFilters(query, filters)
 
-  Object.entries(conditions).forEach(([key, value]) => {
-    query = query.eq(key, value)
-  })
-
-  const { count, error } = await query.limit(1)
-  if (error) throw handleSupabaseError(error)
-  return (count || 0) > 0
+  const result = await executeQuery(query)
+  return !result.error && (result.data?.length ?? 0) > 0
 }
 
-// Get distinct values
-export async function distinct<T>(
+export async function distinct<T extends GenericRow>(
   table: string,
-  column: string
-): Promise<T[]> {
-  const { data, error } = await supabase.rpc('get_distinct_values', {
-    p_table: table,
-    p_column: column,
-  })
+  columns: string,
+  options?: Omit<QueryOptions, 'select'>
+): Promise<{ data: T[] | null; error: Error | null; count: number }> {
+  const supabase = getSupabaseClient()
+  const query = supabase.from(table).select(columns, { count: 'exact' })
 
-  if (error) {
-    // Fallback if RPC doesn't exist
-    const { data: fallbackData, error: fallbackError } = await supabase
-      .from(table)
-      .select(column)
+  let result = applyFilters(query, options?.filters ?? [])
+  result = applySorting(result, options?.orderBy ?? [])
 
-    if (fallbackError) throw handleSupabaseError(fallbackError)
+  const rpcFallback = async () => {
+    const allResult = await fetchAll<GenericRow>(table, {
+      select: columns,
+      filters: options?.filters,
+      timeout: options?.timeout,
+      retries: options?.retries,
+    })
 
-    const uniqueValues = [...new Set((fallbackData || []).map((d: any) => d[column]))]
-    return uniqueValues as T[]
+    if (allResult.error || !allResult.data) {
+      return allResult
+    }
+
+    const seen = new Set<string>()
+    const unique: GenericRow[] = []
+
+    for (const row of allResult.data) {
+      const key = columns.split(',').map(c => JSON.stringify(row[c.trim()])).join('|')
+      if (!seen.has(key)) {
+        seen.add(key)
+        unique.push(row)
+      }
+    }
+
+    return { data: unique as T[] | null, error: null, count: unique.length }
   }
 
-  return data as T[]
+  try {
+    const queryResult = await executeQuery(result, { timeout: options?.timeout, retries: options?.retries })
+
+    if (queryResult.error) {
+      return await rpcFallback() as { data: T[] | null; error: Error | null; count: number }
+    }
+
+    return { data: queryResult.data as T[] | null, error: null, count: queryResult.count ?? 0 }
+  } catch {
+    return await rpcFallback() as { data: T[] | null; error: Error | null; count: number }
+  }
 }
 
-// Aggregate functions
-export async function aggregate<T = number>(
+export async function aggregate(
   table: string,
-  operation: 'avg' | 'count' | 'max' | 'min' | 'sum',
-  column: string
-): Promise<T> {
-  const { data, error } = await supabase.rpc('aggregate_table', {
-    p_table: table,
-    p_operation: operation,
-    p_column: column,
-  })
+  options?: {
+    count?: boolean
+    sum?: string[]
+    avg?: string[]
+    min?: string[]
+    max?: string[]
+    filters?: FilterCondition[]
+    groupBy?: string[]
+    timeout?: number
+    retries?: number
+  }
+): Promise<AggregateResult> {
+  const result: AggregateResult = {}
 
-  if (error) throw handleSupabaseError(error)
-  return data as T
+  if (options?.count) {
+    result.count = await count(table, options.filters)
+  }
+
+  const numericAggregates = async (type: 'sum' | 'avg' | 'min' | 'max', columns?: string[]) => {
+    if (!columns?.length) return
+
+    const { data, error: fetchError } = await fetchAll<GenericRow>(table, {
+      select: columns.join(','),
+      filters: options?.filters,
+      timeout: options?.timeout,
+      retries: options?.retries,
+    })
+
+    if (fetchError || !data) return
+
+    const numericResult = columns.reduce<Record<string, number>>((acc: Record<string, number>, col) => {
+      const values = data.map(row => row[col]).filter(v => v !== null && v !== undefined) as number[]
+      if (values.length === 0) return acc
+
+      const numValues = values.map(Number)
+      if (type === 'sum') {
+        acc[col] = numValues.reduce((s: number, v: number) => s + v, 0)
+      } else if (type === 'avg') {
+        acc[col] = numValues.reduce((s: number, v: number) => s + v, 0) / numValues.length
+      } else if (type === 'min') {
+        acc[col] = Math.min(...numValues)
+      } else if (type === 'max') {
+        acc[col] = Math.max(...numValues)
+      }
+
+      return acc
+    }, {})
+
+    if (type === 'sum' || type === 'avg') {
+      result[type] = numericResult
+    } else {
+      result[type] = numericResult as Record<string, unknown>
+    }
+  }
+
+  await Promise.all([
+    numericAggregates('sum', options?.sum),
+    numericAggregates('avg', options?.avg),
+    numericAggregates('min', options?.min),
+    numericAggregates('max', options?.max),
+  ])
+
+  return result
 }
 
-// Query builder for complex queries
-export function createQuery(table: string) {
+export async function createQuery<T extends GenericRow>(
+  table: string,
+  baseOptions?: QueryOptions
+): Promise<{
+  filters: (conditions: FilterCondition[]) => void
+  sort: (orderBy: { column: string; ascending?: boolean }[]) => void
+  paginate: (page: number, pageSize: number) => void
+  execute: () => Promise<{ data: T[] | null; error: Error | null; count: number }>
+  count: () => Promise<number>
+}> {
+  const activeFilters: FilterCondition[] = [...(baseOptions?.filters ?? [])]
+  let activeSort: { column: string; ascending?: boolean }[] = []
+  let activePagination: { page: number; pageSize: number } | null = null
+
   return {
-    select: (columns = '*') => supabase.from(table).select(columns),
-    insert: (data: any) => supabase.from(table).insert(data as any),
-    update: (data: any) => supabase.from(table).update(data as any),
-    delete: () => supabase.from(table).delete(),
-    upsert: (data: any) => supabase.from(table).upsert(data as any),
+    filters: (conditions: FilterCondition[]) => {
+      activeFilters.push(...conditions)
+    },
+    sort: (orderBy: { column: string; ascending?: boolean }[]) => {
+      activeSort = orderBy
+    },
+    paginate: (page: number, pageSize: number) => {
+      activePagination = { page, pageSize }
+    },
+    execute: async () => {
+      const opts: QueryOptions = {
+        select: baseOptions?.select,
+        filters: activeFilters.length > 0 ? activeFilters : undefined,
+        orderBy: activeSort.length > 0 ? activeSort : undefined,
+        useCache: baseOptions?.useCache,
+        ttl: baseOptions?.ttl,
+        timeout: baseOptions?.timeout,
+        retries: baseOptions?.retries,
+        retryDelay: baseOptions?.retryDelay,
+      }
+
+      if (activePagination) {
+        const from = (activePagination.page - 1) * activePagination.pageSize
+        const to = from + activePagination.pageSize - 1
+        opts.range = { from, to }
+      } else if (baseOptions?.limit) {
+        opts.limit = baseOptions.limit
+        if (baseOptions.offset) opts.offset = baseOptions.offset
+      }
+
+      return fetchAll<T>(table, opts)
+    },
+    count: async () => {
+      return count(table, activeFilters.length > 0 ? activeFilters : baseOptions?.filters)
+    },
   }
 }

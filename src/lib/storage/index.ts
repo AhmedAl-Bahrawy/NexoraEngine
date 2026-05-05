@@ -1,14 +1,9 @@
-/**
- * Storage Operations
- * File upload, download, and management
- */
-
-import { supabase } from '../auth/client'
+import { getSupabaseClient } from '../auth/client'
 import { handleSupabaseError, StorageError } from '../utils/errors'
+import { withRetry } from '../utils/retry'
 import { validateFile, validateImage, validateDocument } from '../utils/validators'
-import { ERROR_CODES } from '../constants/supabase'
+import { ERRORS, STORAGE } from '../constants/supabase'
 
-// Types
 export interface UploadResult {
   path: string
   fullPath: string
@@ -18,6 +13,8 @@ export interface UploadOptions {
   upsert?: boolean
   contentType?: string
   cacheControl?: string
+  timeout?: number
+  retries?: number
 }
 
 export interface StorageObject {
@@ -33,29 +30,44 @@ export interface StorageObject {
   }
 }
 
-// Upload file with progress tracking
+export interface FileMetadata {
+  size: number
+  lastModified: string
+  contentType: string
+  cacheControl: string
+}
+
+async function withStorageRetry<T>(fn: () => Promise<{ data: T | null; error: unknown }>): Promise<T> {
+  return withRetry(async () => {
+    const result = await fn()
+    if (result.error) throw result.error
+    if (!result.data) throw new StorageError('No data returned', ERRORS.DATABASE)
+    return result.data
+  }, { retries: 2, delay: 1000 })
+}
+
 export async function uploadFile(
   bucket: string,
   path: string,
-  file: File,
+  file: File | Blob,
   options?: UploadOptions & {
     onProgress?: (progress: { loaded: number; total: number; percentage: number }) => void
   }
 ): Promise<UploadResult> {
+  const supabase = getSupabaseClient()
   const totalSize = file.size
-  
-  // Call initial progress
+
   options?.onProgress?.({ loaded: 0, total: totalSize, percentage: 0 })
-  
-  const { data, error } = await supabase.storage
-    .from(bucket)
-    .upload(path, file, {
+
+  const data = await withStorageRetry<{ path: string }>(
+    () => supabase.storage.from(bucket).upload(path, file, {
       upsert: options?.upsert ?? true,
       contentType: options?.contentType,
       cacheControl: options?.cacheControl,
     })
+  )
 
-  if (error) throw handleSupabaseError(error)
+  options?.onProgress?.({ loaded: totalSize, total: totalSize, percentage: 100 })
 
   return {
     path: data.path,
@@ -63,236 +75,136 @@ export async function uploadFile(
   }
 }
 
-// Upload file with progress simulation (for UI feedback)
-export async function uploadFileWithProgress(
-  bucket: string,
-  path: string,
-  file: File,
-  onProgress: (progress: { 
-    loaded: number
-    total: number
-    percentage: number
-    loadedMB: string
-    remainingMB: string
-  }) => void,
-  options?: UploadOptions
-): Promise<UploadResult> {
-  const totalSize = file.size
-  const totalMB = totalSize / (1024 * 1024)
-  
-  // Simulate progress updates
-  const simulateProgress = () => {
-    let loaded = 0
-    const chunkSize = totalSize / 20 // 20 progress updates
-    
-    return new Promise<void>((resolve) => {
-      const interval = setInterval(() => {
-        loaded += chunkSize
-        if (loaded >= totalSize) {
-          loaded = totalSize
-          clearInterval(interval)
-          resolve()
-        }
-        
-        const loadedMB = loaded / (1024 * 1024)
-        const remainingMB = totalMB - loadedMB
-        const percentage = Math.round((loaded / totalSize) * 100)
-        
-        onProgress({
-          loaded,
-          total: totalSize,
-          percentage,
-          loadedMB: loadedMB.toFixed(2),
-          remainingMB: remainingMB.toFixed(2)
-        })
-      }, 100) // Update every 100ms
-    })
-  }
-
-  // Start progress simulation and upload concurrently
-  const progressPromise = simulateProgress()
-  
-  const { data, error } = await supabase.storage
-    .from(bucket)
-    .upload(path, file, {
-      upsert: options?.upsert ?? true,
-      contentType: options?.contentType,
-      cacheControl: options?.cacheControl,
-    })
-
-  await progressPromise
-
-  if (error) throw handleSupabaseError(error)
-
-  // Final progress update
-  onProgress({
-    loaded: totalSize,
-    total: totalSize,
-    percentage: 100,
-    loadedMB: totalMB.toFixed(2),
-    remainingMB: '0.00'
-  })
-
-  return {
-    path: data.path,
-    fullPath: `${bucket}/${data.path}`,
-  }
-}
-
-// Upload with validation
 export async function uploadWithValidation(
   bucket: string,
   path: string,
   file: File,
-  validator: (file: File) => { isValid: boolean; error?: string }
+  validator: (file: File) => { isValid: boolean; error?: string },
+  options?: UploadOptions
 ): Promise<UploadResult> {
   const validation = validator(file)
   if (!validation.isValid) {
-    throw new StorageError(
-      validation.error || 'File validation failed',
-      ERROR_CODES.STORAGE.INVALID_TYPE
-    )
+    throw new StorageError(validation.error ?? 'File validation failed', ERRORS.VALIDATION)
   }
 
-  return uploadFile(bucket, path, file)
+  return uploadFile(bucket, path, file, options)
 }
 
-// Upload image with validation
 export async function uploadImage(
   bucket: string,
   path: string,
-  file: File
+  file: File,
+  options?: UploadOptions
 ): Promise<UploadResult> {
-  return uploadWithValidation(bucket, path, file, validateImage)
+  return uploadWithValidation(bucket, path, file, validateImage, options)
 }
 
-// Upload document with validation
 export async function uploadDocument(
   bucket: string,
   path: string,
-  file: File
+  file: File,
+  options?: UploadOptions
 ): Promise<UploadResult> {
-  return uploadWithValidation(bucket, path, file, validateDocument)
+  return uploadWithValidation(bucket, path, file, validateDocument, options)
 }
 
-// Get public URL
 export function getPublicUrl(bucket: string, path: string): string {
+  const supabase = getSupabaseClient()
   const { data } = supabase.storage.from(bucket).getPublicUrl(path)
   return data.publicUrl
 }
 
-// Get signed URL (temporary access)
 export async function getSignedUrl(
   bucket: string,
   path: string,
-  expiresIn = 60 // seconds
+  expiresIn = 60
 ): Promise<string> {
-  const { data, error } = await supabase.storage
-    .from(bucket)
-    .createSignedUrl(path, expiresIn)
-
-  if (error) throw handleSupabaseError(error)
+  const supabase = getSupabaseClient()
+  const data = await withStorageRetry<{ signedUrl: string }>(
+    () => supabase.storage.from(bucket).createSignedUrl(path, expiresIn)
+  )
   return data.signedUrl
 }
 
-// Download file
 export async function downloadFile(
   bucket: string,
   path: string
 ): Promise<Blob> {
-  const { data, error } = await supabase.storage
-    .from(bucket)
-    .download(path)
-
-  if (error) throw handleSupabaseError(error)
+  const supabase = getSupabaseClient()
+  const data = await withStorageRetry<Blob>(
+    () => supabase.storage.from(bucket).download(path)
+  )
   return data
 }
 
-// Delete file
 export async function deleteFile(bucket: string, path: string): Promise<void> {
+  const supabase = getSupabaseClient()
   const { error } = await supabase.storage.from(bucket).remove([path])
   if (error) throw handleSupabaseError(error)
 }
 
-// Delete multiple files
 export async function deleteFiles(
   bucket: string,
   paths: string[]
 ): Promise<void> {
+  const supabase = getSupabaseClient()
   const { error } = await supabase.storage.from(bucket).remove(paths)
   if (error) throw handleSupabaseError(error)
 }
 
-// List files in bucket
 export async function listFiles(
   bucket: string,
   path?: string
 ): Promise<StorageObject[]> {
-  const { data, error } = await supabase.storage
-    .from(bucket)
-    .list(path || '')
-
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase.storage.from(bucket).list(path ?? '')
   if (error) throw handleSupabaseError(error)
-  return data as StorageObject[]
+  return (data ?? []) as unknown as StorageObject[]
 }
 
-// Move file
 export async function moveFile(
   bucket: string,
   fromPath: string,
   toPath: string
 ): Promise<{ message: string }> {
-  const { data, error } = await supabase.storage
-    .from(bucket)
-    .move(fromPath, toPath)
-
-  if (error) throw handleSupabaseError(error)
+  const supabase = getSupabaseClient()
+  const data = await withStorageRetry<{ message: string }>(
+    () => supabase.storage.from(bucket).move(fromPath, toPath)
+  )
   return data
 }
 
-// Copy file
 export async function copyFile(
   bucket: string,
   fromPath: string,
   toPath: string
 ): Promise<{ path: string }> {
-  const { data, error } = await supabase.storage
-    .from(bucket)
-    .copy(fromPath, toPath)
-
-  if (error) throw handleSupabaseError(error)
+  const supabase = getSupabaseClient()
+  const data = await withStorageRetry<{ path: string }>(
+    () => supabase.storage.from(bucket).copy(fromPath, toPath)
+  )
   return data
 }
 
-// Get file info/metadata
 export async function getFileInfo(
   bucket: string,
   path: string
-): Promise<{
-  size: number
-  lastModified: string
-  contentType: string
-  cacheControl: string
-}> {
-  // Use signed URL creation to get metadata
-  const { data, error } = await supabase.storage
-    .from(bucket)
-    .createSignedUrl(path, 1)
+): Promise<FileMetadata> {
+  const supabase = getSupabaseClient()
+  const data = await withStorageRetry<{ signedUrl: string }>(
+    () => supabase.storage.from(bucket).createSignedUrl(path, 1)
+  )
 
-  if (error) throw handleSupabaseError(error)
-
-  // Fetch headers to get metadata
   const response = await fetch(data.signedUrl, { method: 'HEAD' })
-  
+
   return {
-    size: parseInt(response.headers.get('content-length') || '0'),
-    lastModified: response.headers.get('last-modified') || '',
-    contentType: response.headers.get('content-type') || '',
-    cacheControl: response.headers.get('cache-control') || '',
+    size: parseInt(response.headers.get('content-length') ?? '0'),
+    lastModified: response.headers.get('last-modified') ?? '',
+    contentType: response.headers.get('content-type') ?? '',
+    cacheControl: response.headers.get('cache-control') ?? '',
   }
 }
 
-// Create folder (upload empty placeholder)
 export async function createFolder(
   bucket: string,
   folderPath: string
@@ -301,23 +213,20 @@ export async function createFolder(
   await uploadFile(bucket, `${folderPath}/.keep`, placeholder)
 }
 
-// Upload from URL
 export async function uploadFromURL(
   bucket: string,
   path: string,
-  url: string
+  url: string,
+  options?: UploadOptions
 ): Promise<UploadResult> {
   const response = await fetch(url)
   const blob = await response.blob()
-  const file = new File([blob], path.split('/').pop() || 'file', {
+  const file = new File([blob], path.split('/').pop() ?? 'file', {
     type: blob.type,
   })
 
-  return uploadFile(bucket, path, file)
+  return uploadFile(bucket, path, file, options)
 }
 
-// Export validators for convenience
 export { validateFile, validateImage, validateDocument }
-
-// Export constants
-export { ERROR_CODES as STORAGE_ERRORS }
+export { ERRORS as STORAGE_ERRORS }

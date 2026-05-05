@@ -2,10 +2,59 @@ export interface KeyComponents {
   table?: string
   operation?: string
   filters?: Record<string, unknown>
+  sort?: { column: string; ascending: boolean }
   order?: { column: string; ascending: boolean }
   pagination?: { limit: number; offset: number }
   columns?: string
   extra?: Record<string, unknown>
+}
+
+export class CacheKey {
+  static fromComponents(components: KeyComponents): string {
+    return deriveCacheKey(components)
+  }
+
+  static fromQuery(
+    table: string,
+    options?: {
+      select?: string
+      filters?: unknown
+      orderBy?: { column: string; ascending?: boolean }[]
+      limit?: number
+      offset?: number
+      range?: { from: number; to: number }
+    }
+  ): string {
+    return deriveCacheKey({
+      table,
+      operation: 'query',
+      columns: options?.select,
+      filters: options?.filters as Record<string, unknown> | undefined,
+      order: options?.orderBy?.[0]
+        ? { column: options.orderBy[0].column, ascending: options.orderBy[0].ascending ?? false }
+        : undefined,
+      pagination: options?.limit
+        ? {
+            limit: options.limit,
+            offset: options.offset ?? 0,
+          }
+        : options?.range
+          ? { limit: options.range.to - options.range.from + 1, offset: options.range.from }
+          : undefined,
+    })
+  }
+
+  static tablePrefix(table: string): string {
+    return `qb:${table}:`
+  }
+
+  static forTable(table: string, id?: string): string {
+    return deriveTableKey(table, id)
+  }
+
+  static forMutation(table: string): string[] {
+    return deriveMutationKeys(table)
+  }
 }
 
 export function deriveCacheKey(components: KeyComponents): string {

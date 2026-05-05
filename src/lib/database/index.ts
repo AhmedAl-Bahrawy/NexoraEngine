@@ -1,9 +1,11 @@
-export { supabase, type SupabaseClient } from './client'
+export { getSupabaseClient as supabase, type SupabaseClient } from './client'
 
 export {
   type QueryOptions,
   type PaginatedQueryOptions,
   type PaginatedResult,
+  type FilterCondition,
+  type AggregateResult,
   fetchAll,
   fetchById,
   fetchWhere,
@@ -20,6 +22,7 @@ export {
 export {
   type BulkInsertItem,
   type BulkUpdateItem,
+  type MutationOptions,
   insertOne,
   insertMany,
   updateById,
@@ -32,7 +35,7 @@ export {
   restore,
   bulkInsert,
   bulkUpdate,
-  transaction,
+  runSequential,
 } from './mutations'
 
 export {
@@ -40,8 +43,10 @@ export {
   type RealtimeChange,
   type SubscriptionConfig,
   type SubscriptionCallbacks,
+  type SubscriptionHandle,
   subscribeToTable,
-  useSubscription,
+  subscribeToTables,
+  getActiveSubscriptions,
   createBroadcastChannel,
   createPresenceChannel,
   unsubscribe,

@@ -4,13 +4,16 @@
 
 ## Features
 
-- **Authentication** - Email/password, OAuth, Magic Links, MFA, Anonymous auth, Admin operations
+- **Authentication** - Email/password, OAuth, Magic Links, MFA, Anonymous auth, Admin operations, Auth middleware
 - **Database** - Fully dynamic CRUD with composable filtering, sorting, and pagination
 - **Query Engine** - Smart query system with automatic caching, deduplication, and TTL-based expiration
 - **Realtime** - Postgres change subscriptions, cross-tab broadcast, presence tracking
 - **Storage** - File upload, download, signed URLs, validation, and management
 - **Error Handling** - Centralized error classes, type guards, consistent responses
 - **Validation** - Input validation, file validators, pagination guards
+- **Retry Logic** - Exponential backoff retry with configurable attempts and delays
+- **Timeout Handling** - AbortController-based timeout for all queries and mutations
+- **Rate Limiting** - Configurable rate limiter with window-based tracking
 - **TypeScript** - Full type safety throughout the entire codebase
 
 ## Quick Start
@@ -35,14 +38,16 @@ npm run typecheck
 
 ```
 src/lib/
-├── auth/           Authentication: client, operations, MFA, admin
+├── auth/           Authentication: client, operations, MFA, admin, middleware
 ├── database/       Database: queries, mutations, realtime
 ├── storage/        Storage: upload, download, delete, URLs
 ├── cache/          Smart caching: TTL, key derivation, deduplication
 ├── query-engine/   Query system: builder, engine, composition
-├── utils/          Utilities: errors, validators, formatters
+├── utils/          Utilities: errors, retry, validate, rate-limit, validators
 ├── constants/      Configuration constants
 └── index.ts        Master barrel export
+
+skills/             AI knowledge base for autonomous operation
 ```
 
 ## Usage
@@ -52,12 +57,23 @@ src/lib/
 ```typescript
 import { fetchAll, fetchById, insertOne, updateById, deleteById } from '@/lib'
 
-// Fetch
-const users = await fetchAll<User>('users')
+// Fetch with retry and timeout
+const users = await fetchAll<User>('users', { timeout: 5000, retries: 3 })
 const user = await fetchById<User>('users', 'user-id')
 
-// Mutate
-const newUser = await insertOne<User>('users', { name: 'John', email: 'john@example.com' })
+// Fetch with filters
+const activeUsers = await fetchWhere<User>('users', [
+  { column: 'status', operator: 'eq', value: 'active' },
+  { column: 'age', operator: 'gte', value: 18 },
+])
+
+// Mutate with validation
+const newUser = await insertOne<User>('users', { name: 'John', email: 'john@example.com' }, {
+  validate: [
+    { field: 'name', required: true, minLength: 2 },
+    { field: 'email', required: true, type: 'email' },
+  ],
+})
 const updated = await updateById<User>('users', 'user-id', { name: 'Jane' })
 await deleteById('users', 'user-id')
 ```
@@ -66,15 +82,12 @@ await deleteById('users', 'user-id')
 
 ```typescript
 import { createQuery } from '@/lib'
-import { supabase } from '@/lib'
 
-const users = await createQuery<User>(supabase, 'users')
-  .select('id, name, email')
-  .eq('status', 'active')
-  .gt('created_at', '2024-01-01')
-  .orderBy('created_at', { ascending: false })
-  .limit(20)
-  .execute()
+const query = await createQuery<User>('users')
+query.filters([{ column: 'status', operator: 'eq', value: 'active' }])
+query.sort([{ column: 'created_at', ascending: false }])
+query.paginate(1, 20)
+const { data, count } = await query.execute()
 ```
 
 ### Query Engine (Cached)
@@ -104,7 +117,7 @@ queryEngine.invalidateAll()
 ### Authentication
 
 ```typescript
-import { signInWithPassword, signUp, signOut, getUser } from '@/lib'
+import { signInWithPassword, signUp, signOut, getUser, enforceAuth } from '@/lib'
 
 // Sign in
 const { user, session } = await signInWithPassword({ email, password })
@@ -115,8 +128,9 @@ const { user, session } = await signUp({ email, password, metadata: { name: 'Joh
 // Get current user
 const user = await getUser()
 
-// Sign out
-await signOut()
+// Auth middleware
+const ctx = await enforceAuth({ requireRole: 'admin' })
+// ctx.user, ctx.userId, ctx.email, ctx.role available
 ```
 
 ### Realtime
@@ -142,8 +156,8 @@ await unsubscribe(channel)
 ```typescript
 import { uploadFile, getPublicUrl, downloadFile, deleteFile } from '@/lib'
 
-// Upload
-const { path } = await uploadFile('bucket', 'folder/file.txt', file)
+// Upload with validation
+const { path } = await uploadImage('bucket', 'avatars/user.jpg', file)
 
 // Get URL
 const url = getPublicUrl('bucket', path)
@@ -163,6 +177,7 @@ await deleteFile('bucket', path)
 | [docs/QUERY_ENGINE.md](docs/QUERY_ENGINE.md) | Query engine, builder, composition |
 | [docs/ERROR_HANDLING.md](docs/ERROR_HANDLING.md) | Error classes, handling patterns |
 | [docs/EXTENDING.md](docs/EXTENDING.md) | How to extend the system |
+| [skills/](skills/) | AI knowledge base for autonomous operation |
 
 ## Available Scripts
 
@@ -177,6 +192,7 @@ npm run lint        # Run ESLint
 | Package | Purpose |
 |---------|---------|
 | `@supabase/supabase-js` | Supabase client |
+| `@types/node` | Node.js type definitions |
 
 ## License
 
