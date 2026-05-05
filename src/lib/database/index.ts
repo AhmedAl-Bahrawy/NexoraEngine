@@ -1,12 +1,5 @@
-/**
- * Database Barrel Export
- * Central export for all database operations
- */
-
-// Client
 export { supabase, type SupabaseClient } from './client'
 
-// Queries
 export {
   type QueryOptions,
   type PaginatedQueryOptions,
@@ -24,7 +17,6 @@ export {
   createQuery,
 } from './queries'
 
-// Mutations
 export {
   type BulkInsertItem,
   type BulkUpdateItem,
@@ -43,7 +35,6 @@ export {
   transaction,
 } from './mutations'
 
-// Realtime
 export {
   type RealtimeEvent,
   type RealtimeChange,
@@ -56,22 +47,3 @@ export {
   unsubscribe,
   unsubscribeAll,
 } from './realtime'
-
-// Teams
-export {
-  type Team,
-  type TeamMember,
-  type CreateTeamParams,
-  type AddMemberParams,
-  createTeam,
-  getUserTeams,
-  getTeamMembers,
-  addTeamMember,
-  updateMemberRole,
-  removeTeamMember,
-  leaveTeam,
-  deleteTeam,
-  getTeamById,
-  subscribeToTeam,
-  unsubscribeFromTeam,
-} from './teams'

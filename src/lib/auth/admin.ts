@@ -106,8 +106,9 @@ export async function inviteUserByEmail(
     data?: Record<string, unknown>
   }
 ): Promise<User> {
+  const redirectUrl = typeof window !== 'undefined' ? window.location.origin : ''
   const { data, error } = await supabase.auth.admin.inviteUserByEmail(email, {
-    redirectTo: options?.redirectTo || `${window.location.origin}/auth/callback`,
+    redirectTo: options?.redirectTo || `${redirectUrl}/auth/callback`,
     data: options?.data,
   })
 

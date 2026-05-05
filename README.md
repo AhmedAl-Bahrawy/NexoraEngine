@@ -1,217 +1,175 @@
-# Supabase + React + TypeScript + TanStack Query Template
+# Supabase Backend Template
 
-> A production-ready, fully documented Supabase template with multi-team support, realtime sync, and intelligent cached queries.
+> A fully generic, production-ready Supabase backend template. Zero domain assumptions. Reusable across any project.
 
 ## Features
 
-- **Authentication** - Email/password, OAuth (Google, GitHub, etc.), Magic Links, MFA, Anonymous auth
-- **Database** - Full CRUD with queries, mutations, pagination, search, full-text search, transactions
+- **Authentication** - Email/password, OAuth, Magic Links, MFA, Anonymous auth, Admin operations
+- **Database** - Fully dynamic CRUD with composable filtering, sorting, and pagination
+- **Query Engine** - Smart query system with automatic caching, deduplication, and TTL-based expiration
 - **Realtime** - Postgres change subscriptions, cross-tab broadcast, presence tracking
-- **Storage** - File upload with progress, download, delete, signed URLs, validation
-- **Teams** - Multi-tenant system with roles (owner/admin/member), team-aware data isolation
-- **Smart Queries** - TanStack Query layer with automatic caching, optimistic updates, realtime cache sync
-- **RLS** - Row-Level Security on all tables, personal + team data isolation
-- **TypeScript** - Full type safety with generated database types
-- **Error Handling** - Custom error classes, type guards, user-friendly messages
-- **Validation** - Email, password, file, UUID, pagination validators
-- **Formatting** - Date, number, currency, string, color formatters
+- **Storage** - File upload, download, signed URLs, validation, and management
+- **Error Handling** - Centralized error classes, type guards, consistent responses
+- **Validation** - Input validation, file validators, pagination guards
+- **TypeScript** - Full type safety throughout the entire codebase
 
 ## Quick Start
 
 ```bash
-# 1. Clone
-git clone <repo-url> && cd SupabaseFullLearn
-
-# 2. Install
+# 1. Install dependencies
 npm install
 
-# 3. Configure
-# Edit .env with your Supabase URL and anon key
+# 2. Configure environment
+# Create .env with your Supabase credentials:
+# VITE_SUPABASE_URL=https://your-project.supabase.co
+# VITE_SUPABASE_ANON_KEY=your-anon-key
 
-# 4. Apply migrations
-supabase link --project-ref YOUR_PROJECT_REF
-supabase db push
+# 3. Build
+npm run build
 
-# 5. Start
-npm run dev
+# 4. Type check
+npm run typecheck
 ```
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         Your Components                              │
-│                      (src/App.tsx or custom)                         │
-├─────────────────────────────────────────────────────────────────────┤
-│                  Smart Query Layer (TanStack Query)                   │
-│                    src/lib/query/hooks.ts                             │
-│  usePersonalTodos  useCreateTodo  useTeamMembers  useStorageFiles    │
-│  → Auto-caching    → Optimistic   → Realtime      → Invalidation     │
-├─────────────────────────────────────────────────────────────────────┤
-│               Generic Hooks (useState-based Alternative)              │
-│            src/hooks/useSupabase.ts  src/hooks/useAuth.tsx            │
-│  useFetch  useInsert  useUpdate  useDelete  useLiveQuery  useAuth    │
-├─────────────────────────────────────────────────────────────────────┤
-│                      Database Operations                              │
-│                      src/lib/database/                                │
-│  fetchAll  fetchById  insertOne  updateById  deleteById  upsert      │
-│  subscribeToTable  createBroadcastChannel  createPresenceChannel     │
-├─────────────────────────────────────────────────────────────────────┤
-│                      Supabase Client                                  │
-│                      src/lib/auth/client.ts                           │
-│              createClient(url, anonKey, config)                       │
-└─────────────────────────────────────────────────────────────────────┘
+src/lib/
+├── auth/           Authentication: client, operations, MFA, admin
+├── database/       Database: queries, mutations, realtime
+├── storage/        Storage: upload, download, delete, URLs
+├── cache/          Smart caching: TTL, key derivation, deduplication
+├── query-engine/   Query system: builder, engine, composition
+├── utils/          Utilities: errors, validators, formatters
+├── constants/      Configuration constants
+└── index.ts        Master barrel export
 ```
 
-## Project Structure
+## Usage
 
-```
-src/
-├── lib/                    # TEMPLATE CORE - Keep all files
-│   ├── auth/               # Authentication: client, operations, MFA, admin
-│   ├── database/           # Database: queries, mutations, realtime, teams
-│   ├── storage/            # Storage: upload, download, delete, URLs
-│   ├── query/              # Smart Query: hooks, keys, client (TanStack Query)
-│   ├── utils/              # Utilities: errors, validators, formatters
-│   ├── constants/          # Constants: realtime, auth, database, storage
-│   └── index.ts            # Master barrel export
-├── providers/              # React Providers (Template Core)
-│   ├── QueryProvider.tsx   # TanStack Query provider
-│   └── SupabaseProvider.tsx # Auth state provider
-├── hooks/                  # Generic Hooks (Template Core)
-│   ├── useSupabase.ts      # useFetch, useInsert, useLiveQuery, usePagination...
-│   └── useAuth.tsx         # AuthProvider, useAuth, useRequireAuth...
-├── types/                  # TypeScript Types (Template Core)
-│   └── database.ts         # Replace with your generated types
-├── App.tsx                 # ❌ DEMO - Delete when using as template
-├── App.css                 # ❌ DEMO - Delete when using as template
-└── main.tsx                # Entry point - Keep but modify
-
-supabase/
-└── migrations/
-    ├── 0001_initial_schema.sql   # Base tables (todos, profiles)
-    ├── 0002_storage_files.sql    # Storage tracking table
-    └── 0003_teams_system.sql     # Teams + team_members
-
-docs/                     # Developer documentation
-skills/                   # AI agent reference documentation
-```
-
-## Smart Query Layer
-
-The smart query layer is the **primary data access pattern**. It wraps database operations with TanStack Query for automatic caching and realtime sync.
-
-### Example: Using Smart Hooks
+### Direct Database Operations
 
 ```typescript
-import {
-  usePersonalTodos,
-  useCreateTodo,
-  useToggleTodo,
-  useDeleteTodo,
-  usePersonalTodosRealtime,
-} from './lib/query'
+import { fetchAll, fetchById, insertOne, updateById, deleteById } from '@/lib'
 
-function TodoList({ userId }: { userId: string }) {
-  // Fetch (auto-cached)
-  const { data: todos = [], isLoading } = usePersonalTodos(userId)
+// Fetch
+const users = await fetchAll<User>('users')
+const user = await fetchById<User>('users', 'user-id')
 
-  // Realtime (auto-updates cache)
-  usePersonalTodosRealtime(userId)
-
-  // Mutations
-  const createTodo = useCreateTodo()
-  const toggleTodo = useToggleTodo()
-  const deleteTodo = useDeleteTodo()
-
-  // Use...
-}
+// Mutate
+const newUser = await insertOne<User>('users', { name: 'John', email: 'john@example.com' })
+const updated = await updateById<User>('users', 'user-id', { name: 'Jane' })
+await deleteById('users', 'user-id')
 ```
 
-### Creating Smart Hooks for Your Tables
-
-For any table, create 4-5 hooks:
+### Query Builder (Composable)
 
 ```typescript
-// 1. Query hook
-export function usePosts(userId: string | undefined) {
-  return useQuery({
-    queryKey: ['supabase', 'posts', userId || ''],
-    queryFn: async () => {
-      if (!userId) return []
-      return fetchAll<Post>('posts', {
-        filter: (q) => q.eq('user_id', userId),
-        order: { column: 'created_at', ascending: false },
-      })
-    },
-    enabled: !!userId,
-  })
-}
+import { createQuery } from '@/lib'
+import { supabase } from '@/lib'
 
-// 2. Create mutation
-export function useCreatePost() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: async ({ title, userId }: { title: string; userId: string }) => {
-      return insertOne<Post>('posts', { title, user_id: userId })
-    },
-    onSuccess: (newPost) => {
-      queryClient.setQueryData(['supabase', 'posts', newPost.user_id], (old) =>
-        old ? [newPost, ...old] : [newPost]
-      )
-    },
-  })
-}
-
-// 3. Realtime hook
-export function usePostsRealtime(userId: string | undefined) {
-  const queryClient = useQueryClient()
-  useEffect(() => {
-    if (!userId) return
-    const channel = subscribeToTable<Post>(
-      { table: 'posts', filter: `user_id=eq.${userId}` },
-      {
-        onInsert: (data) => queryClient.setQueryData(['supabase', 'posts', userId], (old) => old ? [data, ...old] : [data]),
-        onUpdate: (data) => queryClient.setQueryData(['supabase', 'posts', userId], (old) => old ? old.map(p => p.id === data.id ? data : p) : old),
-        onDelete: (data) => queryClient.setQueryData(['supabase', 'posts', userId], (old) => old ? old.filter(p => p.id !== data.id) : old),
-      }
-    )
-    return () => supabase.removeChannel(channel)
-  }, [userId, queryClient])
-}
+const users = await createQuery<User>(supabase, 'users')
+  .select('id, name, email')
+  .eq('status', 'active')
+  .gt('created_at', '2024-01-01')
+  .orderBy('created_at', { ascending: false })
+  .limit(20)
+  .execute()
 ```
 
-See `docs/SMART_QUERIES.md` for the complete reference.
+### Query Engine (Cached)
+
+```typescript
+import { queryEngine } from '@/lib'
+
+// Cached query (auto-deduplicates concurrent calls)
+const users = await queryEngine.query<User>({
+  table: 'users',
+  filters: [{ column: 'status', operator: 'eq', value: 'active' }],
+  sort: [{ column: 'created_at', ascending: false }],
+  pagination: { limit: 20 },
+  ttl: 60_000, // 1 minute cache
+})
+
+// Mutations auto-invalidate related cache
+const newUser = await queryEngine.create<User>('users', { name: 'John' })
+await queryEngine.update<User>('users', 'user-id', { name: 'Jane' })
+await queryEngine.remove('users', 'user-id')
+
+// Manual invalidation
+queryEngine.invalidateTable('users')
+queryEngine.invalidateAll()
+```
+
+### Authentication
+
+```typescript
+import { signInWithPassword, signUp, signOut, getUser } from '@/lib'
+
+// Sign in
+const { user, session } = await signInWithPassword({ email, password })
+
+// Sign up
+const { user, session } = await signUp({ email, password, metadata: { name: 'John' } })
+
+// Get current user
+const user = await getUser()
+
+// Sign out
+await signOut()
+```
+
+### Realtime
+
+```typescript
+import { subscribeToTable, unsubscribe } from '@/lib'
+
+const channel = subscribeToTable<User>(
+  { table: 'users', event: '*' },
+  {
+    onInsert: (user) => console.log('New user:', user),
+    onUpdate: (user) => console.log('Updated user:', user),
+    onDelete: (user) => console.log('Deleted user:', user),
+  }
+)
+
+// Cleanup
+await unsubscribe(channel)
+```
+
+### Storage
+
+```typescript
+import { uploadFile, getPublicUrl, downloadFile, deleteFile } from '@/lib'
+
+// Upload
+const { path } = await uploadFile('bucket', 'folder/file.txt', file)
+
+// Get URL
+const url = getPublicUrl('bucket', path)
+
+// Download
+const blob = await downloadFile('bucket', path)
+
+// Delete
+await deleteFile('bucket', path)
+```
 
 ## Documentation
 
 | Document | Description |
 |----------|-------------|
-| [docs/TEMPLATE_STRUCTURE.md](docs/TEMPLATE_STRUCTURE.md) | What to keep vs delete when using as template |
-| [docs/SMART_QUERIES.md](docs/SMART_QUERIES.md) | Complete smart query layer reference |
-| [docs/SETUP_CHECKLIST.md](docs/SETUP_CHECKLIST.md) | Step-by-step setup guide |
-| [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) | Authentication guide |
-| [docs/DATABASE.md](docs/DATABASE.md) | Database operations guide |
-| [docs/REALTIME.md](docs/REALTIME.md) | Realtime subscriptions guide |
-| [docs/STORAGE.md](docs/STORAGE.md) | File storage guide |
-| [skills/](skills/) | AI agent reference documentation |
-
-## Using This Template
-
-1. **Keep** everything in `src/lib/`, `src/providers/`, `src/hooks/`, `src/types/`
-2. **Delete** `src/App.tsx`, `src/App.css`
-3. **Replace** `src/types/database.ts` with your generated types
-4. **Add** smart hooks for your tables in `src/lib/query/hooks.ts`
-5. **Add** query keys for your tables in `src/lib/query/keys.ts`
-6. **Create** your own `src/App.tsx`
+| [docs/CACHE.md](docs/CACHE.md) | Caching strategy, TTL, invalidation |
+| [docs/QUERY_ENGINE.md](docs/QUERY_ENGINE.md) | Query engine, builder, composition |
+| [docs/ERROR_HANDLING.md](docs/ERROR_HANDLING.md) | Error classes, handling patterns |
+| [docs/EXTENDING.md](docs/EXTENDING.md) | How to extend the system |
 
 ## Available Scripts
 
 ```bash
-npm run dev        # Start development server
-npm run build      # Build for production
-npm run preview    # Preview production build
-npm run lint       # Run ESLint
+npm run build       # Compile TypeScript
+npm run typecheck   # Type check without emitting
+npm run lint        # Run ESLint
 ```
 
 ## Dependencies
@@ -219,10 +177,6 @@ npm run lint       # Run ESLint
 | Package | Purpose |
 |---------|---------|
 | `@supabase/supabase-js` | Supabase client |
-| `@tanstack/react-query` | Smart query layer (caching, mutations, realtime) |
-| `react` / `react-dom` | React framework |
-| `typescript` | Type safety |
-| `vite` | Build tool |
 
 ## License
 

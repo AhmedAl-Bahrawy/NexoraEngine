@@ -1,13 +1,3 @@
-/**
- * Legacy Supabase Shim
- * Backward compatibility layer for imports referencing the old monolithic supabase.ts
- *
- * @deprecated Use modular imports instead:
- *   - import { supabase } from './lib/auth'
- *   - import { fetchAll, insertOne } from './lib/database'
- *   - import { subscribeToTable } from './lib/database/realtime'
- */
-
 import type { User, Session, RealtimeChannel } from '@supabase/supabase-js'
 import { supabase } from './auth/client'
 import { handleSupabaseError } from './utils/errors'
@@ -34,7 +24,6 @@ export {
   resendConfirmationEmail,
 } from './auth/operations'
 
-// Legacy wrappers for old API signatures
 export async function signInWithPassword(email: string, password: string) {
   const result = await _signInWithPassword({ email, password })
   return result
@@ -68,7 +57,7 @@ export {
   type RealtimeChange,
 } from './database'
 
-export async function updateTable<T>(table: string, data: any, match: Record<string, unknown>): Promise<T> {
+export async function updateTable<T>(table: string, data: Record<string, unknown>, match: Record<string, unknown>): Promise<T> {
   if (match.id && Object.keys(match).length === 1) {
     return _updateById<T>(table, match.id as string, data)
   }
@@ -85,12 +74,12 @@ export async function deleteFromTable(table: string, match: Record<string, unkno
 
 export function subscribeToTable<T extends Record<string, any>>(
   tableOrConfig: string | { table: string; event?: RealtimeEvent; filter?: string; schema?: string },
-  callbackOrCallbacks: ((change: any) => void) | { onInsert?: (data: T) => void; onUpdate?: (data: T) => void; onDelete?: (data: T) => void; onAll?: (change: any) => void; onError?: (error: Error) => void },
+  callbackOrCallbacks: ((change: unknown) => void) | { onInsert?: (data: T) => void; onUpdate?: (data: T) => void; onDelete?: (data: T) => void; onAll?: (change: unknown) => void; onError?: (error: Error) => void },
   filter?: { event?: RealtimeEvent; filter?: string }
 ): RealtimeChannel {
   if (typeof tableOrConfig === 'string') {
     const table = tableOrConfig
-    const callback = callbackOrCallbacks as (change: any) => void
+    const callback = callbackOrCallbacks as (change: unknown) => void
     const event = filter?.event ?? '*'
     const rowFilter = filter?.filter
 
@@ -99,7 +88,7 @@ export function subscribeToTable<T extends Record<string, any>>(
       { onAll: callback }
     )
   }
-  return _subscribeToTable<T>(tableOrConfig, callbackOrCallbacks as any)
+  return _subscribeToTable<T>(tableOrConfig, callbackOrCallbacks as unknown as Parameters<typeof _subscribeToTable<T>>[1])
 }
 
 export {
@@ -128,4 +117,4 @@ export {
   REALTIME as REALTIME_SUBSCRIBE_STATES,
 } from './constants/supabase'
 
-export type { DbRow } from '../types'
+export type { GenericRow as DbRow } from '../types'

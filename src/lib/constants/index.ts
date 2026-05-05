@@ -1,8 +1,3 @@
-/**
- * Constants Barrel Export
- * Central export for all constants
- */
-
 export {
   ENV_KEYS,
   REALTIME,

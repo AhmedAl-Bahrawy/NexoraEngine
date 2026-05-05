@@ -98,10 +98,11 @@ export async function signInWithOTP(email: string): Promise<void> {
 export async function signInWithOAuth(
   provider: 'google' | 'github' | 'gitlab' | 'azure' | 'bitbucket' | 'facebook'
 ): Promise<{ url: string; provider: string }> {
+  const redirectUrl = typeof window !== 'undefined' ? window.location.origin : ''
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider,
     options: {
-      redirectTo: `${window.location.origin}/auth/callback`,
+      redirectTo: `${redirectUrl}/auth/callback`,
     },
   })
 
@@ -119,8 +120,9 @@ export async function resetPassword(email: string): Promise<void> {
     throw new ValidationError('Invalid email format', { email: ['Please enter a valid email address'] })
   }
 
+  const redirectUrl = typeof window !== 'undefined' ? window.location.origin : ''
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${window.location.origin}/auth/reset-password`,
+    redirectTo: `${redirectUrl}/auth/reset-password`,
   })
 
   if (error) throw handleSupabaseError(error)
