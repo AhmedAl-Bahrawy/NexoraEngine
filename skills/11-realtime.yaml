@@ -1,0 +1,140 @@
+id: nexora.realtime
+name: Realtime System
+category: realtime
+description: Nexora Engine's comprehensive realtime system providing database change subscriptions, broadcast messaging, presence tracking, and connection management built on Supabase Realtime.
+
+intent:
+  what: Provides a complete realtime layer with database subscriptions (postgres_changes), broadcast channels (client-to-client messaging), presence channels (online user tracking), and connection management utilities. Includes channel state handling, auto-reconnection, row-level filtering, and unified RealtimeManager.
+  why: Enables real-time collaboration, live data updates, chat functionality, and presence awareness without managing WebSocket connections directly. The abstraction handles channel lifecycle, state management, error handling, and cleanup automatically.
+
+inputs:
+  SubscriptionConfig:
+    table: string
+    event: "RealtimeEvent? ('INSERT' | 'UPDATE' | 'DELETE' | '*')"
+    filter: "string? (Supabase filter: 'id=eq.123')"
+    schema: "string? (default: 'public')"
+    channelName: string?
+    timeout: "number? (ms, default: 30000)"
+  SubscriptionCallbacks:
+    onInsert: "(data: T) => void"
+    onUpdate: "(data: T) => void"
+    onDelete: "(data: T) => void"
+    onAll: "(change: RealtimeChange<T>) => void"
+    onError: "(error: Error) => void"
+    onSubscribed: "(info: ChannelInfo) => void"
+    onTimedOut: "() => void"
+    onClosed: "() => void"
+  RealtimeChange:
+    eventType: "'INSERT' | 'UPDATE' | 'DELETE'"
+    new: "T | null"
+    old: "T | null"
+    schema: string
+    table: string
+    commitTimestamp: string
+  PresenceCallbacks:
+    onSync: "(users: Record<string, unknown[]>) => void"
+    onJoin: "(presences: Record<string, unknown[]>) => void"
+    onLeave: "(presences: Record<string, unknown[]>) => void"
+    onSubscribed: "() => void"
+    onError: "(error: Error) => void"
+    onTimedOut: "() => void"
+    onClosed: "() => void"
+
+outputs:
+  SubscriptionHandle:
+    channel: RealtimeChannel
+    unsubscribe: "() => Promise<void>"
+    isSubscribed: "() => boolean"
+    getState: "() => RealtimeChannelState"
+  BroadcastChannelHandle:
+    on: "(event, callback) => BroadcastChannelHandle (chainable)"
+    send: "(event, payload) => Promise<void>"
+    subscribe: "BroadcastChannelHandle"
+    unsubscribe: "() => Promise<void>"
+    getState: "() => RealtimeChannelState"
+    isSubscribed: "() => boolean"
+  PresenceChannelHandle:
+    subscribe: "(userId, userInfo, callbacks?) => () => Promise<void> (cleanup)"
+    untrack: "() => Promise<void>"
+    unsubscribe: "() => Promise<void>"
+    getState: "() => RealtimePresenceState"
+    getPresenceCount: "() => number"
+    isTracking: "() => boolean"
+  RealtimeManager:
+    subscribeToTable: "(config, callbacks) => SubscriptionHandle"
+    subscribeToRow: "(table, rowId, callbacks, options?) => SubscriptionHandle"
+    createBroadcastChannel: "(name) => BroadcastChannelHandle"
+    createPresenceChannel: "(name) => PresenceChannelHandle"
+    getChannelState: "(key) => RealtimeChannelState | undefined"
+    getChannels: "() => ChannelInfo[]"
+    getSubscribedChannels: "() => ChannelInfo[]"
+    getConnectionState: "() => RealtimeConnectionState"
+    onConnectionChange: "(callback) => () => void (cleanup)"
+    unsubscribe: "(handle) => Promise<void>"
+    unsubscribeAll: "() => Promise<void>"
+    reconnect: "() => Promise<void>"
+    destroy: "() => void"
+
+usage:
+  databaseSubscription: subscribeToTable({ table, event, filter, schema }, { onInsert, onUpdate, onDelete, onAll, onSubscribed, onError })
+  rowSubscription: subscribeToRow(table, rowId, callbacks, { events, schema })
+  broadcast: createBroadcastChannel(name).on(event, cb).subscribe().send(event, payload)
+  presence: createPresenceChannel(name).subscribe(userId, userInfo, { onSync, onJoin, onLeave }).then(cleanup => cleanup())
+  connection: onConnectionChange(state => { /* handle */ }).cleanup()
+
+logic:
+  databaseSubscriptions: Build channel key, check deduplication, create Supabase channel, subscribe with timeout, route events to callbacks, track state
+  broadcastChannels: Create channel, register .on() handlers in Map, subscribe fires all handlers, send transmits broadcast, unsubscribe cleans up
+  presenceChannels: Create channel, subscribe then track user, sync/join/leave events auto-fire, cleanup untracks then unsubscribes
+  connectionManagement: Global state tracked, listeners notified, reconnect re-subscribes all, unsubscribeAll clears everything
+
+constraints:
+  rules:
+    - Always call .unsubscribe() when done
+    - Register broadcast .on() handlers BEFORE .subscribe()
+    - For presence, use returned cleanup function for proper untrack + unsubscribe
+    - Row-level subscriptions use filter: 'id=eq.{rowId}'
+    - Timeout is in milliseconds (default: 30000)
+  antiPatterns:
+    - Don't subscribe to entire tables when only need specific rows
+    - Don't forget to handle onTimedOut and onClosed states
+    - Don't use database subscriptions for high-frequency events (>10/sec)
+    - Don't skip untrack before presence unsubscribe
+    - Don't create new channels for every message
+    - Don't ignore connection state changes
+
+dependencies:
+  internal: [getClient, NexoraError, REALTIME constants]
+  external: ["@supabase/supabase-js"]
+
+codeMapping:
+  subscribeToTable(): Creates Supabase channel with postgres_changes
+  subscribeToRow(): subscribeToTable with filter: id=eq.{id}
+  createBroadcastChannel(): BroadcastChannelHandle
+  channel.on(): Registers broadcast handler
+  channel.send(): channel.send({ type: 'broadcast', ... })
+  createPresenceChannel(): PresenceChannelHandle
+  presence.subscribe(): channel.track() + subscribe
+  presence.untrack(): channel.untrack()
+  getConnectionState(): Returns global connection state
+  onConnectionChange(): Adds listener, returns cleanup
+  reconnect(): Re-subscribes all channels
+  unsubscribeAll(): Unsubscribes all, clears map
+
+aiInstructions:
+  whenToUse:
+    - Database subscriptions for CRUD event notifications
+    - Row-level subscriptions for watching specific records
+    - Broadcast for chat, typing indicators, notifications, collaborative cursors
+    - Presence for online user lists, chat room participants
+    - Connection management for reconnection UI, offline detection
+  whenNotToUse:
+    - Database subscriptions for high-frequency events (>10/sec) - use broadcast
+    - Presence for non-interactive tracking - use database flags
+    - Separate channels for each user in large group - use one channel with filters
+    - Broadcast for persistent data - use database mutations
+
+metadata:
+  complexity: high
+  stability: stable
+  sdkLayer: realtime

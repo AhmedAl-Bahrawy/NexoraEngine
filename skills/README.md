@@ -14,6 +14,7 @@ This directory contains machine-readable documentation for AI agents to understa
 - `08-performance-optimization.*` - Optimization techniques
 - `09-utility-functions.*` - Helper functions and formatters
 - `10-infinite-scroll.*` - Infinite scroll, cursor pagination, and optimistic updates
+- `11-realtime.*` - Database subscriptions, broadcast channels, presence tracking, and connection management
 
 ## Usage
 
@@ -25,3 +26,5 @@ AI agents should read these files to understand:
 5. Configuration requirements
 6. Infinite scroll and cursor-based pagination patterns
 7. Optimistic update strategies
+8. Realtime subscriptions, broadcast messaging, and presence tracking
+9. Connection state management and reconnection

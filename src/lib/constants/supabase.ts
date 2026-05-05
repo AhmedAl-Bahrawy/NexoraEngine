@@ -47,6 +47,7 @@ export const REALTIME = {
     CHANNEL_ERROR: 'CHANNEL_ERROR',
     TIMED_OUT: 'TIMED_OUT',
     CLOSED: 'CLOSED',
+    CONNECTING: 'CONNECTING',
   },
   EVENTS: {
     INSERT: 'INSERT',
@@ -54,7 +55,18 @@ export const REALTIME = {
     DELETE: 'DELETE',
     ALL: '*',
   },
+  PRESENCE_EVENTS: {
+    SYNC: 'sync',
+    JOIN: 'join',
+    LEAVE: 'leave',
+  },
+  BROADCAST: {
+    DEFAULT_EVENT: '*',
+    TYPE: 'broadcast',
+  },
   DEFAULT_TIMEOUT: 30000,
+  RECONNECT_DELAY: 1000,
+  MAX_RECONNECT_ATTEMPTS: 5,
 } as const
 
 export const STORAGE = {

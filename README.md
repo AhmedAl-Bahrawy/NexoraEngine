@@ -39,6 +39,7 @@ Nexora Engine is a production-grade, universal backend SDK that provides:
 - **Intelligent caching** - TTL-based caching with automatic invalidation
 - **Advanced query building** - Fluent query builder with filtering, sorting, pagination
 - **Comprehensive auth** - Complete authentication and authorization system
+- **Full realtime system** - Database subscriptions, broadcast messaging, presence tracking
 - **Zod v4 validation** - Schema validation for data integrity
 - **AI-ready** - Includes skill files for AI-powered development
 
@@ -1235,73 +1236,202 @@ NexoraError (base)
 
 ### Realtime
 
-Subscribe to database changes in realtime.
+Nexora Engine provides a comprehensive realtime system with database change subscriptions, broadcast messaging, presence tracking, and connection management.
+
+#### Database Change Subscriptions
 
 ```typescript
 import { 
   subscribeToTable,
-  subscribeToTables,
+  subscribeToRow,
   unsubscribe,
-  unsubscribeAll
+  unsubscribeAll,
+  getChannels,
+  getConnectionState,
+  realtime
 } from 'nexora-engine'
 
-// Subscribe to table changes
+// Subscribe to all changes on a table
 const handle = subscribeToTable(
-  { table: 'users', event: 'INSERT', schema: 'public' },
+  { table: 'users', event: '*', schema: 'public' },
   {
     onInsert: (data) => console.log('New user:', data),
     onUpdate: (data) => console.log('Updated user:', data),
     onDelete: (data) => console.log('Deleted user:', data),
-    onError: (error) => console.error('Realtime error:', error)
+    onAll: (change) => console.log('Any change:', change.eventType, change.new, change.old),
+    onSubscribed: (info) => console.log('Subscribed!', info.key),
+    onTimedOut: () => console.log('Subscription timed out'),
+    onClosed: () => console.log('Subscription closed'),
+    onError: (error) => console.error('Realtime error:', error),
   }
 )
+
+// Subscribe to a specific row only
+const rowHandle = subscribeToRow('users', 'user-123', {
+  onUpdate: (data) => console.log('User 123 updated:', data),
+  onSubscribed: () => console.log('Watching user 123'),
+})
+
+// Check subscription status
+handle.isSubscribed() // boolean
+handle.getState()     // 'SUBSCRIBED' | 'CHANNEL_ERROR' | 'TIMED_OUT' | 'CLOSED'
 
 // Unsubscribe
 await unsubscribe(handle)
-// or
-await unsubscribe(handle.channel)
 
-// Subscribe to multiple tables
-const sub = subscribeToTables(
-  [
-    { table: 'users', event: 'INSERT' },
-    { table: 'posts', event: 'INSERT' }
-  ],
+// Subscribe to multiple tables with different callbacks
+const handles = subscribeToTables([
   {
-    onInsert: (data) => console.log('New record:', data)
+    config: { table: 'users', event: 'INSERT' },
+    callbacks: { onInsert: (data) => console.log('New user:', data) },
+  },
+  {
+    config: { table: 'posts', event: '*' },
+    callbacks: {
+      onInsert: (data) => console.log('New post:', data),
+      onUpdate: (data) => console.log('Updated post:', data),
+    },
+  },
+])
+```
+
+#### Connection Management
+
+```typescript
+// Monitor connection state
+const state = getConnectionState() // 'connecting' | 'connected' | 'disconnected' | 'reconnecting'
+
+// Listen to connection changes
+const cleanup = onConnectionChange((state) => {
+  console.log('Connection state:', state)
+})
+// Call cleanup() to stop listening
+
+// List all active channels
+const channels = getChannels()
+// Returns: [{ key, channel, type, state, subscribedAt }, ...]
+
+// Get subscribed channels only
+const subscribed = realtime.getSubscribedChannels()
+
+// Reconnect all channels
+await realtime.reconnect()
+
+// Unsubscribe from everything
+await unsubscribeAll()
+```
+
+#### Broadcast Channels
+
+Client-to-client messaging without database involvement:
+
+```typescript
+import { createBroadcastChannel } from 'nexora-engine'
+
+const channel = createBroadcastChannel('chat-room')
+
+// Register event handlers BEFORE subscribing
+channel
+  .on('message', (payload) => {
+    console.log('Received message:', payload)
+  })
+  .on('typing', (payload) => {
+    console.log('User typing:', payload)
+  })
+  .subscribe() // Connect to the channel
+
+// Send messages
+await channel.send('message', { text: 'Hello!', userId: '123' })
+await channel.send('typing', { userId: '123' })
+
+// Check state
+channel.isSubscribed() // boolean
+channel.getState()     // 'SUBSCRIBED' | 'CHANNEL_ERROR' | ...
+
+// Disconnect
+await channel.unsubscribe()
+```
+
+#### Presence Channels
+
+Track who is online in real-time:
+
+```typescript
+import { createPresenceChannel } from 'nexora-engine'
+
+const presence = createPresenceChannel('chat-room')
+
+// Join the channel and start tracking
+const cleanup = await presence.subscribe(
+  'user-123',
+  { name: 'John', avatar: '/avatar.jpg' },
+  {
+    onSync: (users) => {
+      console.log('All online users:', users)
+    },
+    onJoin: (users) => {
+      console.log('User joined:', users)
+    },
+    onLeave: (users) => {
+      console.log('User left:', users)
+    },
+    onSubscribed: () => console.log('Connected to presence channel'),
+    onError: (error) => console.error('Presence error:', error),
   }
 )
 
-// Broadcast channel
-import { createBroadcastChannel } from 'nexora-engine'
+// Get current presence state
+const onlineUsers = presence.getState()
+const onlineCount = presence.getPresenceCount()
+const isTracking = presence.isTracking()
 
-const channel = createBroadcastChannel('my-channel')
+// Leave the channel
+await cleanup() // Calls untrack() then unsubscribe()
 
-// Send message
-channel.send({
-  type: 'custom-event',
-  payload: { message: 'Hello' }
-})
+// Or just untrack (stay connected but go invisible)
+await presence.untrack()
 
-// Receive messages
-channel.on('custom-event', (payload) => {
-  console.log(payload.message)
-})
-
-// Presence channel
-import { createPresenceChannel } from 'nexora-engine'
-
-const presence = createPresenceChannel('room-1')
-
-// Track presence
-presence.track({ user_id: '123', online_at: new Date().toISOString() })
-
-// Listen to presence changes
-presence.onSync(() => {
-  const state = presence.currentState()
-  console.log('Online users:', state)
-})
+// Or fully disconnect
+await presence.unsubscribe()
 ```
+
+#### RealtimeManager
+
+Unified realtime management:
+
+```typescript
+import { realtime } from 'nexora-engine'
+
+// All operations available through the manager
+const dbHandle = realtime.subscribeToTable({ table: 'posts', event: 'INSERT' }, {
+  onInsert: (data) => console.log('New post:', data),
+})
+
+const broadcast = realtime.createBroadcastChannel('notifications')
+const presence = realtime.createPresenceChannel('room-1')
+
+const state = realtime.getConnectionState()
+const channels = realtime.getChannels()
+
+await realtime.reconnect()
+await realtime.unsubscribeAll()
+
+// Cleanup when done
+realtime.destroy()
+```
+
+**Realtime Features Summary:**
+
+| Feature | Description |
+|---------|-------------|
+| Database subscriptions | Listen to INSERT/UPDATE/DELETE on tables or specific rows |
+| Broadcast channels | Client-to-client messaging without database |
+| Presence channels | Track online users with join/leave events |
+| Connection monitoring | Track connection state changes |
+| Channel management | List, inspect, and manage all active channels |
+| Auto-reconnect | Reconnect all channels after disconnection |
+| State callbacks | onSubscribed, onTimedOut, onClosed for lifecycle events |
+| Row-level filtering | Subscribe to changes on specific rows only |
 
 ## Advanced Usage
 

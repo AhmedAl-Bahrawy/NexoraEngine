@@ -64,18 +64,36 @@ export {
 export {
   subscribeToTable,
   subscribeToTables,
+  subscribeToRow,
   getActiveSubscriptions,
+  getChannels,
+  getChannelInfo,
+  getChannelState,
+  isChannelActive,
+  getSubscribedChannels,
+  getConnectionState,
+  onConnectionChange,
   createBroadcastChannel,
   createPresenceChannel,
   unsubscribe,
   unsubscribeAll,
+  reconnect,
+  RealtimeManager,
+  realtime,
 } from './database'
 export type {
   RealtimeEvent,
+  RealtimeChannelState,
+  RealtimeConnectionState,
   RealtimeChange,
+  ChannelInfo,
   SubscriptionConfig,
   SubscriptionCallbacks,
   SubscriptionHandle,
+  TableSubscription,
+  BroadcastChannelHandle,
+  PresenceChannelHandle,
+  PresenceCallbacks,
 } from './database'
 
 // Query layer - Builder and Engine
