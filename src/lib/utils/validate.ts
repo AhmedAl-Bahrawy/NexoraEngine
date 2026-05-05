@@ -55,22 +55,3 @@ export function createValidator<T extends AnyZodSchema>(schema: T) {
     validateOrFail: (data: unknown): z.infer<T> => validateOrFail(data, schema),
   }
 }
-
-export function validatePassword(password: string): { isValid: boolean; errors: string[] } {
-  const schema = z
-    .string()
-    .min(6, 'Password must be at least 6 characters')
-    .regex(/[A-Z]/, 'Password must contain an uppercase letter')
-    .regex(/[a-z]/, 'Password must contain a lowercase letter')
-    .regex(/[0-9]/, 'Password must contain a number')
-
-  const result = schema.safeParse(password)
-  if (result.success) {
-    return { isValid: true, errors: [] }
-  }
-  return { isValid: false, errors: flattenZodErrors(result.error) }
-}
-
-export function isValidEmail(email: string): boolean {
-  return z.string().email().safeParse(email).success
-}
