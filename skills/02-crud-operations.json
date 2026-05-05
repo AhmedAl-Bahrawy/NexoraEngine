@@ -1,0 +1,107 @@
+{
+  "id": "nexora.crud-operations",
+  "name": "CRUD Operations",
+  "category": "database",
+  "description": "Generic database CRUD abstraction layer for Supabase with filtering, sorting, pagination, and relational query support.",
+  "intent": {
+    "what": "Provides clean, type-safe functions for all standard database operations: create, read, update, delete. Supports composable filters, sorting, pagination, and validation.",
+    "why": "Eliminates repetitive database code, ensures consistent error handling, and provides a Prisma-like developer experience on top of Supabase."
+  },
+  "inputs": {
+    "fetchAll": {
+      "table": { "type": "string", "required": true },
+      "options": { "type": "object", "required": false }
+    },
+    "insertOne": {
+      "table": { "type": "string", "required": true },
+      "data": { "type": "object", "required": true },
+      "options": { "type": "object", "required": false }
+    }
+  },
+  "outputs": {
+    "fetchAll": { "data": "array_or_null", "error": "Error_or_null", "count": "number" },
+    "fetchById": { "data": "object_or_null", "error": "Error_or_null" },
+    "insertOne": "T (record)",
+    "deleteById": "void",
+    "count": "number",
+    "exists": "boolean"
+  },
+  "usage": {
+    "steps": [
+      "Import the desired function from nexora-engine",
+      "Call with table name and options",
+      "Handle the returned Promise"
+    ],
+    "code_examples": [
+      "const { data } = await fetchAll<User>('users', { filters: [{ column: 'status', operator: 'eq', value: 'active' }] })",
+      "const newUser = await insertOne<User>('users', { name: 'John' })",
+      "await deleteById('users', 'user-uuid')"
+    ]
+  },
+  "logic": {
+    "internal_flow": [
+      "Get Supabase client instance",
+      "Build query with supabase.from(table)",
+      "Apply filters via applyFilters()",
+      "Apply sorting via applySorting()",
+      "Apply pagination (limit/offset or range)",
+      "Execute with timeout and retry support",
+      "Return normalized response"
+    ],
+    "execution_reasoning": {
+      "query_execution": "All queries go through executeRequest() for consistent timeout/retry",
+      "cache": "Cache integration happens at QueryEngine layer",
+      "filters": "Map directly to Supabase query builders"
+    }
+  },
+  "constraints": {
+    "rules": [
+      "Table name must be a valid Supabase table",
+      "ID must be a string or number",
+      "Filter operators must be valid Supabase operators"
+    ],
+    "anti_patterns": [
+      "Don't use raw SQL strings",
+      "Don't forget to handle null data",
+      "Don't use any type - use proper generics"
+    ]
+  },
+  "dependencies": {
+    "internal": ["getClient", "executeRequest", "DatabaseError"],
+    "external": ["@supabase/supabase-js"]
+  },
+  "code_mapping": {
+    "fetchAll": "fetchAll<T>()",
+    "fetchById": "fetchById<T>()",
+    "insertOne": "insertOne<T>()",
+    "updateById": "updateById<T>()",
+    "deleteById": "deleteById()",
+    "count": "count()",
+    "exists": "exists()"
+  },
+  "ai_instructions": {
+    "when_to_use": [
+      "Use fetchAll for listing records with optional filters",
+      "Use fetchById when you know the primary key",
+      "Use fetchPaginated for paginated list views",
+      "Use mutation functions for write operations"
+    ],
+    "when_not_to_use": [
+      "Don't use for real-time subscriptions",
+      "Don't use for file storage",
+      "Don't use for auth operations"
+    ],
+    "reasoning_strategy": [
+      "Identify operation type (read vs write)",
+      "Choose appropriate function based on needs",
+      "Apply filters/sorting/pagination as needed",
+      "Use proper TypeScript generics",
+      "Handle response properly"
+    ]
+  },
+  "metadata": {
+    "complexity": "low",
+    "stability": "stable",
+    "sdk_layer": "query"
+  }
+}

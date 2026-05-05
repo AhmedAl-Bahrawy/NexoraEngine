@@ -1,17 +1,14 @@
-import { getSupabaseClient } from '../auth/client'
-import { handleSupabaseError } from '../utils/errors'
-import { withRetry } from '../utils/retry'
-import { validateInput, type AnyZodSchema } from '../utils/validate'
-import { QueryCache, CacheKey } from '../cache'
-import { DATABASE } from '../constants/supabase'
+import { getClient } from '../core/client'
+import { QueryCache } from '../cache/cache'
+import { deriveCacheKey, deriveMutationKeys } from '../cache/keys'
+import { DatabaseError } from '../errors/nexora-error'
+import type { GenericRow } from '../../types'
 
 export interface MutationOptions {
   select?: string
   timeout?: number
   retries?: number
-  retryDelay?: number
   invalidateCache?: boolean
-  validate?: AnyZodSchema
 }
 
 export interface BulkInsertItem<T> {
@@ -26,143 +23,118 @@ export interface BulkUpdateItem<T> {
 function invalidateTableCache(table: string, options?: MutationOptions): void {
   if (options?.invalidateCache !== false) {
     const cache = QueryCache.getInstance()
-    cache.invalidatePattern(CacheKey.tablePrefix(table))
-  }
-}
-
-async function executeQuery(query: any, options?: { timeout?: number; retries?: number; retryDelay?: number }): Promise<any> {
-  const timeoutMs = options?.timeout ?? DATABASE.DEFAULT_TIMEOUT
-
-  const execute = async () => {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
-
-    try {
-      const result = await query
-      if (result.error) {
-        throw handleSupabaseError(result.error)
-      }
-      return result
-    } finally {
-      clearTimeout(timeoutId)
+    const patterns = deriveMutationKeys(table)
+    for (const pattern of patterns) {
+      cache.invalidatePattern(pattern)
     }
   }
-
-  const retries = options?.retries ?? 0
-  const retryDelay = options?.retryDelay ?? DATABASE.RETRY_DELAY
-
-  return withRetry(execute, { retries, delay: retryDelay })
 }
 
-export async function insertOne<T>(
+export async function insertOne<T extends GenericRow = GenericRow>(
   table: string,
   data: Record<string, unknown>,
   options?: MutationOptions
 ): Promise<T> {
-  if (options?.validate) {
-    const result = validateInput(data, options.validate)
-    if (!result.valid) {
-      throw handleSupabaseError(new Error(`Validation failed: ${result.errors.join(', ')}`))
-    }
+  const supabase = getClient()
+  const result = await supabase
+    .from(table)
+    .insert(data)
+    .select(options?.select ?? '*')
+    .single()
+
+  if (result.error) {
+    throw new DatabaseError(String(result.error), { cause: result.error as Error })
   }
 
-  const supabase = getSupabaseClient()
-  const result = await executeQuery(
-    (supabase.from(table) as any).insert(data).select(options?.select ?? '*').single(),
-    { timeout: options?.timeout, retries: options?.retries, retryDelay: options?.retryDelay }
-  )
-
   invalidateTableCache(table, options)
-  return result.data as T
+  return result.data as unknown as T
 }
 
-export async function insertMany<T>(
+export async function insertMany<T extends GenericRow = GenericRow>(
   table: string,
   data: Record<string, unknown>[],
   options?: MutationOptions
 ): Promise<T[]> {
-  const supabase = getSupabaseClient()
-  const result = await executeQuery(
-    (supabase.from(table) as any).insert(data).select(options?.select ?? '*'),
-    { timeout: options?.timeout, retries: options?.retries, retryDelay: options?.retryDelay }
-  )
+  const supabase = getClient()
+  const result = await supabase
+    .from(table)
+    .insert(data)
+    .select(options?.select ?? '*')
+
+  if (result.error) {
+    throw new DatabaseError(String(result.error), { cause: result.error as Error })
+  }
 
   invalidateTableCache(table, options)
-  return result.data as T[]
+  return result.data as unknown as T[]
 }
 
-export async function updateById<T>(
+export async function updateById<T extends GenericRow = GenericRow>(
   table: string,
   id: string,
   data: Record<string, unknown>,
   options?: MutationOptions
 ): Promise<T> {
-  if (options?.validate) {
-    const result = validateInput(data, options.validate)
-    if (!result.valid) {
-      throw handleSupabaseError(new Error(`Validation failed: ${result.errors.join(', ')}`))
-    }
+  const supabase = getClient()
+  const result = await supabase
+    .from(table)
+    .update(data)
+    .eq('id', id)
+    .select(options?.select ?? '*')
+    .single()
+
+  if (result.error) {
+    throw new DatabaseError(String(result.error), { cause: result.error as Error })
   }
 
-  const supabase = getSupabaseClient()
-  const result = await executeQuery(
-    (supabase.from(table) as any).update(data).eq('id', id).select(options?.select ?? '*').single(),
-    { timeout: options?.timeout, retries: options?.retries, retryDelay: options?.retryDelay }
-  )
-
   invalidateTableCache(table, options)
-  return result.data as T
+  return result.data as unknown as T
 }
 
-export async function updateWhere<T>(
+export async function updateWhere<T extends GenericRow = GenericRow>(
   table: string,
   conditions: Record<string, unknown>,
   data: Record<string, unknown>,
   options?: MutationOptions
 ): Promise<T[]> {
-  if (options?.validate) {
-    const result = validateInput(data, options.validate)
-    if (!result.valid) {
-      throw handleSupabaseError(new Error(`Validation failed: ${result.errors.join(', ')}`))
-    }
-  }
-
-  const supabase = getSupabaseClient()
-  let query = (supabase.from(table) as any).update(data).select(options?.select ?? '*')
+  const supabase = getClient()
+  let query = supabase
+    .from(table)
+    .update(data)
+    .select(options?.select ?? '*')
 
   Object.entries(conditions).forEach(([key, value]) => {
-    query = (query as any).eq(key, value)
+    query = query.eq(key, value) as any
   })
 
-  const result = await executeQuery(query, { timeout: options?.timeout, retries: options?.retries, retryDelay: options?.retryDelay })
+  const result = await query
+
+  if (result.error) {
+    throw new DatabaseError(String(result.error), { cause: result.error as Error })
+  }
 
   invalidateTableCache(table, options)
-  return result.data as T[]
+  return result.data as unknown as T[]
 }
 
-export async function upsert<T>(
+export async function upsert<T extends GenericRow = GenericRow>(
   table: string,
   data: Record<string, unknown>,
   options?: MutationOptions & { onConflict?: string }
 ): Promise<T> {
-  if (options?.validate) {
-    const result = validateInput(data, options.validate)
-    if (!result.valid) {
-      throw handleSupabaseError(new Error(`Validation failed: ${result.errors.join(', ')}`))
-    }
+  const supabase = getClient()
+  const result = await supabase
+    .from(table)
+    .upsert(data, { onConflict: options?.onConflict ?? 'id' })
+    .select(options?.select ?? '*')
+    .single()
+
+  if (result.error) {
+    throw new DatabaseError(String(result.error), { cause: result.error as Error })
   }
 
-  const supabase = getSupabaseClient()
-  const result = await executeQuery(
-    (supabase.from(table) as any)
-      .upsert(data, { onConflict: options?.onConflict ?? 'id' })
-      .select(options?.select ?? '*')
-      .single(),
-    { timeout: options?.timeout, retries: options?.retries, retryDelay: options?.retryDelay }
-  )
-
   invalidateTableCache(table, options)
-  return result.data as T
+  return result.data as unknown as T
 }
 
 export async function deleteById(
@@ -170,11 +142,15 @@ export async function deleteById(
   id: string,
   options?: MutationOptions
 ): Promise<void> {
-  const supabase = getSupabaseClient()
-  await executeQuery(
-    (supabase.from(table) as any).delete().eq('id', id),
-    { timeout: options?.timeout, retries: options?.retries, retryDelay: options?.retryDelay }
-  )
+  const supabase = getClient()
+  const { error } = await supabase
+    .from(table)
+    .delete()
+    .eq('id', id)
+
+  if (error) {
+    throw new DatabaseError(String(error), { cause: error as Error })
+  }
 
   invalidateTableCache(table, options)
 }
@@ -184,17 +160,23 @@ export async function deleteWhere(
   conditions: Record<string, unknown>,
   options?: MutationOptions
 ): Promise<number> {
-  const supabase = getSupabaseClient()
-  let query = (supabase.from(table) as any).delete()
+  const supabase = getClient()
+  let query = supabase
+    .from(table)
+    .delete()
 
   Object.entries(conditions).forEach(([key, value]) => {
-    query = (query as any).eq(key, value)
+    query = query.eq(key, value) as any
   })
 
-  const result = await executeQuery(query)
+  const { data, error, count } = await query
+
+  if (error) {
+    throw new DatabaseError(String(error), { cause: error as Error })
+  }
 
   invalidateTableCache(table, options)
-  return result.count ?? 0
+  return count ?? 0
 }
 
 export async function deleteMany(
@@ -202,77 +184,79 @@ export async function deleteMany(
   ids: string[],
   options?: MutationOptions
 ): Promise<void> {
-  const supabase = getSupabaseClient()
-  await executeQuery(
-    (supabase.from(table) as any).delete().in('id', ids),
-    { timeout: options?.timeout, retries: options?.retries, retryDelay: options?.retryDelay }
-  )
+  const supabase = getClient()
+  const { error } = await supabase
+    .from(table)
+    .delete()
+    .in('id', ids)
+
+  if (error) {
+    throw new DatabaseError(String(error), { cause: error as Error })
+  }
 
   invalidateTableCache(table, options)
 }
 
-export async function softDelete<T>(
+export async function softDelete<T extends GenericRow = GenericRow>(
   table: string,
   id: string,
   options?: MutationOptions
 ): Promise<T> {
-  const supabase = getSupabaseClient()
-  const result = await executeQuery(
-    (supabase.from(table) as any)
-      .update({ deleted_at: new Date().toISOString() })
-      .eq('id', id)
-      .select(options?.select ?? '*')
-      .single(),
-    { timeout: options?.timeout, retries: options?.retries, retryDelay: options?.retryDelay }
-  )
+  const supabase = getClient()
+  const result = await supabase
+    .from(table)
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('id', id)
+    .select(options?.select ?? '*')
+    .single()
+
+  if (result.error) {
+    throw new DatabaseError(String(result.error), { cause: result.error as Error })
+  }
 
   invalidateTableCache(table, options)
-  return result.data as T
+  return result.data as unknown as T
 }
 
-export async function restore<T>(
+export async function restore<T extends GenericRow = GenericRow>(
   table: string,
   id: string,
   options?: MutationOptions
 ): Promise<T> {
-  const supabase = getSupabaseClient()
-  const result = await executeQuery(
-    (supabase.from(table) as any)
-      .update({ deleted_at: null })
-      .eq('id', id)
-      .select(options?.select ?? '*')
-      .single(),
-    { timeout: options?.timeout, retries: options?.retries, retryDelay: options?.retryDelay }
-  )
+  const supabase = getClient()
+  const result = await supabase
+    .from(table)
+    .update({ deleted_at: null })
+    .eq('id', id)
+    .select(options?.select ?? '*')
+    .single()
+
+  if (result.error) {
+    throw new DatabaseError(String(result.error), { cause: result.error as Error })
+  }
 
   invalidateTableCache(table, options)
-  return result.data as T
+  return result.data as unknown as T
 }
 
-export async function bulkInsert<T>(
+export async function bulkInsert<T extends GenericRow = GenericRow>(
   table: string,
   items: Record<string, unknown>[],
   options?: MutationOptions
 ): Promise<T[]> {
-  const supabase = getSupabaseClient()
-  const result = await executeQuery(
-    (supabase.from(table) as any).insert(items).select(options?.select ?? '*'),
-    { timeout: options?.timeout, retries: options?.retries, retryDelay: options?.retryDelay }
-  )
-
-  invalidateTableCache(table, options)
-  return result.data as T[]
+  return insertMany<T>(table, items, options)
 }
 
-export async function bulkUpdate<T>(
+export async function bulkUpdate<T extends GenericRow = GenericRow>(
   table: string,
   items: { id: string; data: Record<string, unknown> }[],
   options?: MutationOptions
 ): Promise<T[]> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const results = await Promise.all(
     items.map((item) =>
-      (supabase.from(table) as any)
+      supabase
+        .from(table)
         .update(item.data)
         .eq('id', item.id)
         .select(options?.select ?? '*')
@@ -280,16 +264,16 @@ export async function bulkUpdate<T>(
     )
   )
 
-  const errors = results.filter((r: any) => r.error).map((r: any) => r.error)
+  const errors = results.filter((r) => r.error)
   if (errors.length > 0) {
-    throw handleSupabaseError(errors[0])
+    throw new DatabaseError(String(errors[0].error), { cause: errors[0].error as Error })
   }
 
   invalidateTableCache(table, options)
-  return results.map((r: any) => r.data) as T[]
+  return results.map((r) => r.data as unknown as T)
 }
 
-export async function runSequential<T>(
+export async function runSequential<T extends GenericRow = GenericRow>(
   table: string,
   operations: Array<() => Promise<T>>,
   options?: MutationOptions

@@ -9,7 +9,7 @@ export {
   exists,
   distinct,
   aggregate,
-} from './queries'
+} from '../database/queries'
 
 export {
   insertOne,
@@ -25,7 +25,7 @@ export {
   bulkInsert,
   bulkUpdate,
   runSequential,
-} from './mutations'
+} from '../database/mutations'
 
 export type {
   FilterCondition,
@@ -33,6 +33,4 @@ export type {
   PaginatedQueryOptions,
   PaginatedResult,
   AggregateResult,
-} from './queries'
-
-export { getClient as getSupabaseClient } from '../core/client'
+} from '../database/queries'

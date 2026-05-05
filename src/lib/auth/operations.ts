@@ -1,8 +1,7 @@
-import { getSupabaseClient } from './client'
-import { handleSupabaseError, ValidationError } from '../utils/errors'
-import { withRetry } from '../utils/retry'
+import { getClient } from '../core/client'
+import { AuthError, ValidationError } from '../errors/nexora-error'
+import { executeRequest } from '../core/pipeline'
 import { isValidEmail, validatePassword } from '../utils/validators'
-import { AUTH } from '../constants/supabase'
 import type { User, Session } from '@supabase/supabase-js'
 
 export interface SignInCredentials {
@@ -25,42 +24,46 @@ export interface OAuthOptions {
   scopes?: string
 }
 
-async function withAuthRetry<T>(fn: () => Promise<{ data: T; error: unknown }>, retries = 2): Promise<T> {
-  return withRetry(async () => {
-    const result = await fn()
-    if (result.error) throw result.error
-    return result.data
-  }, { retries, delay: 1000 })
-}
-
 export async function signInWithPassword(credentials: SignInCredentials): Promise<AuthResult> {
   if (!isValidEmail(credentials.email)) {
-    throw new ValidationError('Invalid email format', { email: ['Please enter a valid email address'] })
+    throw new ValidationError('Invalid email format', {
+      fieldErrors: { email: ['Please enter a valid email address'] },
+    })
   }
 
-  const supabase = getSupabaseClient()
-  const data = await withAuthRetry<{ user: User | null; session: Session | null }>(
+  const supabase = getClient()
+
+  const { data, error } = await executeRequest(
     () => supabase.auth.signInWithPassword({
       email: credentials.email,
       password: credentials.password,
     })
   )
 
-  return { user: data.user, session: data.session }
+  if (error) {
+    throw new AuthError(String(error), { cause: error as unknown as Error })
+  }
+
+  return { user: data?.user ?? null, session: data?.session ?? null }
 }
 
 export async function signUp(credentials: SignUpCredentials): Promise<AuthResult> {
   if (!isValidEmail(credentials.email)) {
-    throw new ValidationError('Invalid email format', { email: ['Please enter a valid email address'] })
+    throw new ValidationError('Invalid email format', {
+      fieldErrors: { email: ['Please enter a valid email address'] },
+    })
   }
 
   const passwordValidation = validatePassword(credentials.password)
   if (!passwordValidation.isValid) {
-    throw new ValidationError('Weak password', { password: passwordValidation.errors })
+    throw new ValidationError('Weak password', {
+      fieldErrors: { password: passwordValidation.errors },
+    })
   }
 
-  const supabase = getSupabaseClient()
-  const data = await withAuthRetry<{ user: User | null; session: Session | null }>(
+  const supabase = getClient()
+
+  const { data, error } = await executeRequest(
     () => supabase.auth.signUp({
       email: credentials.email,
       password: credentials.password,
@@ -68,27 +71,33 @@ export async function signUp(credentials: SignUpCredentials): Promise<AuthResult
     })
   )
 
-  return { user: data.user, session: data.session }
+  if (error) {
+    throw new AuthError(String(error), { cause: error as unknown as Error })
+  }
+
+  return { user: data?.user ?? null, session: data?.session ?? null }
 }
 
 export async function signOut(): Promise<void> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const { error } = await supabase.auth.signOut()
-  if (error) throw handleSupabaseError(error)
+  if (error) throw new AuthError(String(error), { cause: error as unknown as Error })
 }
 
 export async function signInWithOTP(email: string): Promise<void> {
   if (!isValidEmail(email)) {
-    throw new ValidationError('Invalid email format', { email: ['Please enter a valid email address'] })
+    throw new ValidationError('Invalid email format', {
+      fieldErrors: { email: ['Please enter a valid email address'] },
+    })
   }
 
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const { error } = await supabase.auth.signInWithOtp({ email })
-  if (error) throw handleSupabaseError(error)
+  if (error) throw new AuthError(String(error), { cause: error as unknown as Error })
 }
 
 export async function signInWithOAuth(options: OAuthOptions): Promise<{ url: string; provider: string }> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const redirectUrl = options.redirectTo ?? (typeof window !== 'undefined' ? window.location.origin : '')
 
   const { data, error } = await supabase.auth.signInWithOAuth({
@@ -99,35 +108,39 @@ export async function signInWithOAuth(options: OAuthOptions): Promise<{ url: str
     },
   })
 
-  if (error) throw handleSupabaseError(error)
+  if (error) throw new AuthError(String(error), { cause: error as unknown as Error })
 
   return { url: data.url, provider: options.provider }
 }
 
 export async function resetPassword(email: string, redirectTo?: string): Promise<void> {
   if (!isValidEmail(email)) {
-    throw new ValidationError('Invalid email format', { email: ['Please enter a valid email address'] })
+    throw new ValidationError('Invalid email format', {
+      fieldErrors: { email: ['Please enter a valid email address'] },
+    })
   }
 
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const redirectUrl = redirectTo ?? (typeof window !== 'undefined' ? window.location.origin : '')
 
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: `${redirectUrl}/auth/reset-password`,
   })
 
-  if (error) throw handleSupabaseError(error)
+  if (error) throw new AuthError(String(error), { cause: error as unknown as Error })
 }
 
 export async function updatePassword(newPassword: string): Promise<void> {
   const validation = validatePassword(newPassword)
   if (!validation.isValid) {
-    throw new ValidationError('Weak password', { password: validation.errors })
+    throw new ValidationError('Weak password', {
+      fieldErrors: { password: validation.errors },
+    })
   }
 
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const { error } = await supabase.auth.updateUser({ password: newPassword })
-  if (error) throw handleSupabaseError(error)
+  if (error) throw new AuthError(String(error), { cause: error as unknown as Error })
 }
 
 export async function updateUser(attributes: {
@@ -135,33 +148,35 @@ export async function updateUser(attributes: {
   password?: string
   data?: Record<string, unknown>
 }): Promise<User> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const { data, error } = await supabase.auth.updateUser(attributes)
-  if (error) throw handleSupabaseError(error)
+  if (error) throw new AuthError(String(error), { cause: error as unknown as Error })
   return data.user
 }
 
 export async function resendConfirmationEmail(email: string): Promise<void> {
   if (!isValidEmail(email)) {
-    throw new ValidationError('Invalid email format', { email: ['Please enter a valid email address'] })
+    throw new ValidationError('Invalid email format', {
+      fieldErrors: { email: ['Please enter a valid email address'] },
+    })
   }
 
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const { error } = await supabase.auth.resend({ type: 'signup', email })
-  if (error) throw handleSupabaseError(error)
+  if (error) throw new AuthError(String(error), { cause: error as unknown as Error })
 }
 
 export async function getSession(): Promise<Session | null> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const { data: { session }, error } = await supabase.auth.getSession()
-  if (error) throw handleSupabaseError(error)
+  if (error) throw new AuthError(String(error), { cause: error as unknown as Error })
   return session
 }
 
 export async function getUser(): Promise<User | null> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const { data: { user }, error } = await supabase.auth.getUser()
-  if (error) throw handleSupabaseError(error)
+  if (error) throw new AuthError(String(error), { cause: error as unknown as Error })
   return user
 }
 
@@ -171,35 +186,37 @@ export async function isAuthenticated(): Promise<boolean> {
 }
 
 export async function refreshSession(): Promise<Session | null> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const { data: { session }, error } = await supabase.auth.refreshSession()
-  if (error) throw handleSupabaseError(error)
+  if (error) throw new AuthError(String(error), { cause: error as unknown as Error })
   return session
 }
 
 export async function exchangeCodeForSession(code: string): Promise<AuthResult> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const { data, error } = await supabase.auth.exchangeCodeForSession(code)
-  if (error) throw handleSupabaseError(error)
+  if (error) throw new AuthError(String(error), { cause: error as unknown as Error })
   return { user: data.user, session: data.session }
 }
 
 export async function signInAnonymously(): Promise<AuthResult> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const { data, error } = await supabase.auth.signInAnonymously()
-  if (error) throw handleSupabaseError(error)
+  if (error) throw new AuthError(String(error), { cause: error as unknown as Error })
   return { user: data.user, session: data.session }
 }
 
 export async function linkAnonymousAccount(email: string, password: string): Promise<User> {
   const passwordValidation = validatePassword(password)
   if (!passwordValidation.isValid) {
-    throw new ValidationError('Weak password', { password: passwordValidation.errors })
+    throw new ValidationError('Weak password', {
+      fieldErrors: { password: passwordValidation.errors },
+    })
   }
 
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const { data, error } = await supabase.auth.updateUser({ email, password })
-  if (error) throw handleSupabaseError(error)
+  if (error) throw new AuthError(String(error), { cause: error as unknown as Error })
   return data.user
 }
 
@@ -208,19 +225,19 @@ export async function verifyOTP(params: {
   token: string
   type?: 'email' | 'recovery' | 'invite' | 'magiclink'
 }): Promise<AuthResult> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const { data, error } = await supabase.auth.verifyOtp({
     email: params.email,
     token: params.token,
     type: params.type ?? 'email',
   })
 
-  if (error) throw handleSupabaseError(error)
+  if (error) throw new AuthError(String(error), { cause: error as unknown as Error })
   return { user: data.user, session: data.session }
 }
 
 export async function onAuthStateChange(callback: (event: string, session: Session | null) => void): Promise<{ unsubscribe: () => void }> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const { data: { subscription } } = supabase.auth.onAuthStateChange(callback)
 
   return {

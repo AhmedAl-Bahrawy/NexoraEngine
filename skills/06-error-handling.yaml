@@ -1,0 +1,119 @@
+id: nexora.error-handling
+name: Error Handling System
+category: errors
+description: Unified error format with safe error exposure, debug-friendly structure, and specialized error types.
+intent:
+  what: Provides a hierarchy of error classes that normalize errors across the SDK with consistent codes, status codes, and structured details.
+  why: Ensures consistent error handling, makes debugging easier, and allows consumers to handle specific error types.
+
+inputs:
+  NexoraError:
+    message: { type: string, required: true }
+    code: { type: string, required: true }
+    options:
+      type: object
+      required: false
+      properties:
+        statusCode: number
+        details: "Record<string, unknown>"
+        cause: Error
+  NexoraError.from:
+    unknownError: { type: unknown, required: true }
+    defaultCode: { type: string, required: false }
+
+outputs:
+  NexoraError:
+    type: object
+    properties:
+      name: string
+      message: string
+      code: string
+      statusCode: "number | undefined"
+      details: "Record<string, unknown> | undefined"
+      timestamp: number
+      cause: "Error | undefined"
+      toJSON: "function -> Record<string, unknown>"
+  ValidationError:
+    additional_properties:
+      fieldErrors: "Record<string, string[]> | undefined"
+
+usage:
+  steps:
+    - Import error classes from nexora-engine
+    - Throw appropriate error type in your code
+    - Catch and handle based on error type/code
+  code_examples:
+    - |
+      throw new AuthError('Invalid credentials', {
+        details: { userId: '123' }
+      })
+    - |
+      try {
+        await signInWithPassword(creds)
+      } catch (error) {
+        if (error instanceof AuthError) { /* handle 401 */ }
+        if (error instanceof ValidationError) { /* handle 422 */ }
+      }
+    - |
+      throw NexoraError.from(unknownError, 'operation_error')
+
+logic:
+  internal_flow:
+    - "Constructor stores message, code, statusCode, details, timestamp, cause"
+    - "toJSON() returns serialized version safe for API responses"
+    - "NexoraError.from() converts unknown errors"
+    - "Specialized classes set appropriate status codes"
+  error_hierarchy: |
+    NexoraError (base)
+    ├── AuthError (401)
+    ├── DatabaseError (400)
+    ├── ValidationError (422)
+    ├── CacheError
+    ├── RateLimitError (429)
+    └── TimeoutError (408)
+
+constraints:
+  rules:
+    - "All errors extend NexoraError"
+    - "code should be snake_case string"
+    - "statusCode should follow HTTP conventions"
+    - "toJSON() excludes stack traces by default"
+  anti_patterns:
+    - "Don't expose raw Supabase errors directly"
+    - "Don't include sensitive data in details"
+    - "Don't use generic Error in SDK code"
+
+dependencies:
+  internal: []
+  external: []
+
+code_mapping:
+  NexoraError: "NexoraError class"
+  AuthError: "AuthError class"
+  DatabaseError: "DatabaseError class"
+  ValidationError: "ValidationError class"
+  CacheError: "CacheError class"
+  RateLimitError: "RateLimitError class"
+  TimeoutError: "TimeoutError class"
+
+ai_instructions:
+  when_to_use:
+    - "Use AuthError for authentication failures"
+    - "Use ValidationError for input validation failures"
+    - "Use DatabaseError for Supabase/database errors"
+    - "Use NexoraError.from() to convert unknown errors"
+  when_not_to_use:
+    - "Don't use for business logic errors"
+    - "Don't use as control flow"
+    - "Don't throw generic Error in SDK code"
+  reasoning_strategy:
+    - "Identify error type (auth, validation, database, etc.)"
+    - "Use appropriate specialized error class"
+    - "Include relevant details for debugging"
+    - "Set cause to original error for chaining"
+    - "Handle errors by type in consuming code"
+
+metadata:
+  complexity: low
+  stability: stable
+  sdk_layer: errors

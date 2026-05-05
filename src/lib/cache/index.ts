@@ -1,2 +1,3 @@
-export { QueryCache, type CacheEntry, type CacheOptions, type CacheStats } from './cache'
-export { CacheKey, deriveCacheKey, deriveTableKey, deriveMutationKeys, type KeyComponents } from './keys'
+export { QueryCache } from './cache'
+export type { CacheEntry, CacheOptions, CacheStats } from './cache'
+export { deriveCacheKey, deriveMutationKeys } from './keys'

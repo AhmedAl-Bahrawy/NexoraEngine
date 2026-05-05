@@ -1,8 +1,8 @@
-import { getSupabaseClient } from '../auth/client'
-import { handleSupabaseError, StorageError } from '../utils/errors'
-import { withRetry } from '../utils/retry'
+import { getClient } from '../core/client'
+import { StorageError } from '../errors/nexora-error'
+import { executeRequest } from '../core/pipeline'
 import { validateFile, validateImage, validateDocument } from '../utils/validators'
-import { ERRORS, STORAGE } from '../constants/supabase'
+import { STORAGE } from '../constants/supabase'
 
 export interface UploadResult {
   path: string
@@ -38,12 +38,15 @@ export interface FileMetadata {
 }
 
 async function withStorageRetry<T>(fn: () => Promise<{ data: T | null; error: unknown }>): Promise<T> {
-  return withRetry(async () => {
-    const result = await fn()
-    if (result.error) throw result.error
-    if (!result.data) throw new StorageError('No data returned', ERRORS.DATABASE)
-    return result.data
-  }, { retries: 2, delay: 1000 })
+  return executeRequest(
+    async () => {
+      const result = await fn()
+      if (result.error) throw StorageError.from(result.error)
+      if (!result.data) throw new StorageError('No data returned')
+      return result.data
+    },
+    { retries: 2, retryDelay: 1000 }
+  )
 }
 
 export async function uploadFile(
@@ -54,7 +57,7 @@ export async function uploadFile(
     onProgress?: (progress: { loaded: number; total: number; percentage: number }) => void
   }
 ): Promise<UploadResult> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const totalSize = file.size
 
   options?.onProgress?.({ loaded: 0, total: totalSize, percentage: 0 })
@@ -84,7 +87,7 @@ export async function uploadWithValidation(
 ): Promise<UploadResult> {
   const validation = validator(file)
   if (!validation.isValid) {
-    throw new StorageError(validation.error ?? 'File validation failed', ERRORS.VALIDATION)
+    throw new StorageError(validation.error ?? 'File validation failed')
   }
 
   return uploadFile(bucket, path, file, options)
@@ -109,7 +112,7 @@ export async function uploadDocument(
 }
 
 export function getPublicUrl(bucket: string, path: string): string {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const { data } = supabase.storage.from(bucket).getPublicUrl(path)
   return data.publicUrl
 }
@@ -119,7 +122,7 @@ export async function getSignedUrl(
   path: string,
   expiresIn = 60
 ): Promise<string> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const data = await withStorageRetry<{ signedUrl: string }>(
     () => supabase.storage.from(bucket).createSignedUrl(path, expiresIn)
   )
@@ -130,7 +133,7 @@ export async function downloadFile(
   bucket: string,
   path: string
 ): Promise<Blob> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const data = await withStorageRetry<Blob>(
     () => supabase.storage.from(bucket).download(path)
   )
@@ -138,27 +141,27 @@ export async function downloadFile(
 }
 
 export async function deleteFile(bucket: string, path: string): Promise<void> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const { error } = await supabase.storage.from(bucket).remove([path])
-  if (error) throw handleSupabaseError(error)
+  if (error) throw StorageError.from(error)
 }
 
 export async function deleteFiles(
   bucket: string,
   paths: string[]
 ): Promise<void> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const { error } = await supabase.storage.from(bucket).remove(paths)
-  if (error) throw handleSupabaseError(error)
+  if (error) throw StorageError.from(error)
 }
 
 export async function listFiles(
   bucket: string,
   path?: string
 ): Promise<StorageObject[]> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const { data, error } = await supabase.storage.from(bucket).list(path ?? '')
-  if (error) throw handleSupabaseError(error)
+  if (error) throw StorageError.from(error)
   return (data ?? []) as unknown as StorageObject[]
 }
 
@@ -167,7 +170,7 @@ export async function moveFile(
   fromPath: string,
   toPath: string
 ): Promise<{ message: string }> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const data = await withStorageRetry<{ message: string }>(
     () => supabase.storage.from(bucket).move(fromPath, toPath)
   )
@@ -179,7 +182,7 @@ export async function copyFile(
   fromPath: string,
   toPath: string
 ): Promise<{ path: string }> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const data = await withStorageRetry<{ path: string }>(
     () => supabase.storage.from(bucket).copy(fromPath, toPath)
   )
@@ -190,7 +193,7 @@ export async function getFileInfo(
   bucket: string,
   path: string
 ): Promise<FileMetadata> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const data = await withStorageRetry<{ signedUrl: string }>(
     () => supabase.storage.from(bucket).createSignedUrl(path, 1)
   )
@@ -229,4 +232,4 @@ export async function uploadFromURL(
 }
 
 export { validateFile, validateImage, validateDocument }
-export { ERRORS as STORAGE_ERRORS }
+export { STORAGE as STORAGE_ERRORS }

@@ -1,9 +1,9 @@
 import type { GenericRow } from '../../types'
-import { getSupabaseClient } from '../auth/client'
-import { CacheKey, QueryCache } from '../cache'
-import { DatabaseError, handleSupabaseError } from '../utils/errors'
-import { withRetry } from '../utils/retry'
-import { validateInput, type AnyZodSchema } from '../utils/validate'
+import { getClient } from '../core/client'
+import { QueryCache } from '../cache/cache'
+import { deriveCacheKey, deriveMutationKeys } from '../cache/keys'
+import { DatabaseError } from '../errors/nexora-error'
+import { executeRequest } from '../core/pipeline'
 import { DATABASE } from '../constants/supabase'
 
 export interface FilterCondition {
@@ -24,8 +24,6 @@ export interface QueryOptions {
   useCache?: boolean
   timeout?: number
   retries?: number
-  retryDelay?: number
-  validate?: AnyZodSchema
 }
 
 export interface PaginatedQueryOptions extends QueryOptions {
@@ -51,78 +49,26 @@ export interface AggregateResult {
   max?: Record<string, unknown>
 }
 
-async function executeQuery(query: any, options?: { timeout?: number; retries?: number; retryDelay?: number }): Promise<any> {
-  const timeoutMs = options?.timeout ?? DATABASE.DEFAULT_TIMEOUT
-
-  const execute = async () => {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
-
-    try {
-      const result = await query
-      if (result.error) {
-        throw handleSupabaseError(result.error)
-      }
-      return result
-    } finally {
-      clearTimeout(timeoutId)
-    }
-  }
-
-  const retries = options?.retries ?? DATABASE.DEFAULT_RETRIES
-  const retryDelay = options?.retryDelay ?? DATABASE.RETRY_DELAY
-
-  return withRetry(execute, { retries, delay: retryDelay })
-}
-
 function applyFilters(query: any, filters: FilterCondition[]): any {
   let result = query
 
   for (const filter of filters) {
     const { column, operator, value } = filter
     switch (operator) {
-      case 'eq':
-        result = result.eq(column, value)
-        break
-      case 'neq':
-        result = result.neq(column, value)
-        break
-      case 'gt':
-        result = result.gt(column, value)
-        break
-      case 'gte':
-        result = result.gte(column, value)
-        break
-      case 'lt':
-        result = result.lt(column, value)
-        break
-      case 'lte':
-        result = result.lte(column, value)
-        break
-      case 'like':
-        result = result.like(column, String(value))
-        break
-      case 'ilike':
-        result = result.ilike(column, String(value))
-        break
-      case 'in':
-        result = result.in(column, value as unknown[])
-        break
-      case 'contains':
-        result = result.contains(column, value)
-        break
-      case 'containedBy':
-        result = result.containedBy(column, value)
-        break
-      case 'overlap':
-        result = result.overlap(column, value)
-        break
-      case 'is':
-        result = result.is(column, value)
-        break
-      case 'match':
-        result = result.match(value as Record<string, unknown>)
-        break
+      case 'eq': result = result.eq(column, value); break
+      case 'neq': result = result.neq(column, value); break
+      case 'gt': result = result.gt(column, value); break
+      case 'gte': result = result.gte(column, value); break
+      case 'lt': result = result.lt(column, value); break
+      case 'lte': result = result.lte(column, value); break
+      case 'like': result = result.like(column, String(value)); break
+      case 'ilike': result = result.ilike(column, String(value)); break
+      case 'in': result = result.in(column, value as unknown[]); break
+      case 'contains': result = result.contains(column, value); break
+      case 'containedBy': result = result.containedBy(column, value); break
+      case 'overlap': result = result.overlap(column, value); break
+      case 'is': result = result.is(column, value); break
+      case 'match': result = result.match(value as Record<string, unknown>); break
     }
   }
 
@@ -131,26 +77,24 @@ function applyFilters(query: any, filters: FilterCondition[]): any {
 
 function applySorting(query: any, orderBy: { column: string; ascending?: boolean }[]): any {
   let result = query
-
   for (const sort of orderBy) {
     result = result.order(sort.column, { ascending: sort.ascending ?? false })
   }
-
   return result
 }
 
-export async function fetchAll<T extends GenericRow>(
+async function executeQuery<T>(query: any, options?: { timeout?: number; retries?: number }): Promise<T> {
+  return executeRequest(
+    () => query.then((r: any) => r),
+    { timeout: options?.timeout, retries: options?.retries }
+  )
+}
+
+export async function fetchAll<T extends GenericRow = GenericRow>(
   table: string,
   options?: QueryOptions
 ): Promise<{ data: T[] | null; error: Error | null; count: number }> {
-  if (options?.validate) {
-    const result = validateInput(options.filters, options.validate)
-    if (!result.valid) {
-      throw new DatabaseError(`Validation failed: ${result.errors.join(', ')}`, 'validation_error')
-    }
-  }
-
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   let query = supabase.from(table).select(options?.select ?? '*')
 
   if (options?.filters?.length) {
@@ -169,7 +113,12 @@ export async function fetchAll<T extends GenericRow>(
   }
 
   const isCached = options?.useCache !== false
-  const cacheKey = isCached ? CacheKey.fromQuery(table, options) : null
+  const cacheKey = isCached ? deriveCacheKey({
+    table,
+    operation: 'query',
+    filters: options?.filters ? Object.fromEntries(options.filters.map(f => [f.column, f.value])) : undefined,
+    columns: options?.select,
+  }) : null
 
   if (isCached && cacheKey) {
     const cache = QueryCache.getInstance()
@@ -179,41 +128,49 @@ export async function fetchAll<T extends GenericRow>(
     }
   }
 
-  const result = await executeQuery(query, { timeout: options?.timeout, retries: options?.retries, retryDelay: options?.retryDelay })
+  const result = await executeQuery<any>(query, { timeout: options?.timeout, retries: options?.retries })
 
-  if (isCached && cacheKey && !result.error && result.data) {
+  if (result.error) {
+    throw new DatabaseError(String(result.error), { cause: result.error as Error })
+  }
+
+  if (isCached && cacheKey && result.data) {
     const cache = QueryCache.getInstance()
-    cache.set(cacheKey, { data: result.data, count: result.count }, options?.ttl)
+    cache.set(cacheKey, { data: result.data as T[], count: result.count ?? 0 }, options?.ttl)
   }
 
   return {
     data: result.data as T[] | null,
-    error: result.error ? new Error(String(result.error)) : null,
+    error: null,
     count: result.count ?? 0,
   }
 }
 
-export async function fetchById<T extends GenericRow>(
+export async function fetchById<T extends GenericRow = GenericRow>(
   table: string,
   id: string | number,
   options?: Omit<QueryOptions, 'filters' | 'limit' | 'offset' | 'range'>
 ): Promise<{ data: T | null; error: Error | null }> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   let query = supabase.from(table).select(options?.select ?? '*').eq('id', id)
 
   if (options?.orderBy?.length) {
     query = applySorting(query, options.orderBy)
   }
 
-  const result = await executeQuery(query, { timeout: options?.timeout, retries: options?.retries, retryDelay: options?.retryDelay })
+  const result = await executeQuery<any>(query.single(), { timeout: options?.timeout, retries: options?.retries })
+
+  if (result.error) {
+    throw new DatabaseError(String(result.error), { cause: result.error as Error })
+  }
 
   return {
-    data: result.data?.[0] ?? null,
-    error: result.error ? new Error(String(result.error)) : null,
+    data: result.data as T | null,
+    error: null,
   }
 }
 
-export async function fetchWhere<T extends GenericRow>(
+export async function fetchWhere<T extends GenericRow = GenericRow>(
   table: string,
   filters: FilterCondition[],
   options?: Omit<QueryOptions, 'filters'>
@@ -221,7 +178,7 @@ export async function fetchWhere<T extends GenericRow>(
   return fetchAll<T>(table, { ...options, filters })
 }
 
-export async function fetchPaginated<T extends GenericRow>(
+export async function fetchPaginated<T extends GenericRow = GenericRow>(
   table: string,
   options?: PaginatedQueryOptions
 ): Promise<PaginatedResult<T>> {
@@ -229,10 +186,10 @@ export async function fetchPaginated<T extends GenericRow>(
   const pageSize = options?.pageSize ?? DATABASE.PAGINATION.DEFAULT_PAGE_SIZE
 
   if (pageSize > DATABASE.PAGINATION.MAX_PAGE_SIZE) {
-    throw new DatabaseError('Page size exceeds maximum allowed', 'validation_error')
+    throw new DatabaseError('Page size exceeds maximum allowed', { details: { pageSize, max: DATABASE.PAGINATION.MAX_PAGE_SIZE } })
   }
 
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const from = (page - 1) * pageSize
   const to = from + pageSize - 1
 
@@ -247,7 +204,13 @@ export async function fetchPaginated<T extends GenericRow>(
   }
 
   const isCached = options?.useCache !== false
-  const cacheKey = isCached ? CacheKey.fromQuery(table, { ...options, range: { from, to } }) : null
+  const cacheKey = isCached ? deriveCacheKey({
+    table,
+    operation: 'paginated',
+    filters: options?.filters ? Object.fromEntries(options.filters.map(f => [f.column, f.value])) : undefined,
+    pagination: { limit: pageSize, offset: from },
+    columns: options?.select,
+  }) : null
 
   let result: any
 
@@ -257,13 +220,17 @@ export async function fetchPaginated<T extends GenericRow>(
     if (cached) {
       result = { data: cached.data, count: cached.count, error: null }
     } else {
-      result = await executeQuery(query, { timeout: options?.timeout, retries: options?.retries, retryDelay: options?.retryDelay })
+      result = await executeQuery<any>(query, { timeout: options?.timeout, retries: options?.retries })
       if (!result.error && result.data) {
-        cache.set(cacheKey, { data: result.data, count: result.count }, options?.ttl)
+        QueryCache.getInstance().set(cacheKey, { data: result.data as T[], count: result.count ?? 0 }, options?.ttl)
       }
     }
   } else {
-    result = await executeQuery(query, { timeout: options?.timeout, retries: options?.retries, retryDelay: options?.retryDelay })
+    result = await executeQuery<any>(query, { timeout: options?.timeout, retries: options?.retries })
+  }
+
+  if (result.error) {
+    throw new DatabaseError(String(result.error), { cause: result.error as Error })
   }
 
   const count = result.count ?? 0
@@ -280,7 +247,7 @@ export async function fetchPaginated<T extends GenericRow>(
   }
 }
 
-export async function search<T extends GenericRow>(
+export async function search<T extends GenericRow = GenericRow>(
   table: string,
   column: string,
   query: string,
@@ -292,13 +259,13 @@ export async function search<T extends GenericRow>(
   })
 }
 
-export async function fullTextSearch<T extends GenericRow>(
+export async function fullTextSearch<T extends GenericRow = GenericRow>(
   table: string,
   column: string,
   query: string,
   options?: Omit<QueryOptions, 'filters'>
 ): Promise<{ data: T[] | null; error: Error | null; count: number }> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   let result = supabase.from(table).select(options?.select ?? '*').textSearch(column, query)
 
   if (options?.orderBy?.length) {
@@ -307,11 +274,15 @@ export async function fullTextSearch<T extends GenericRow>(
 
   if (options?.limit) result = result.limit(options.limit)
 
-  const queryResult = await executeQuery(result, { timeout: options?.timeout, retries: options?.retries, retryDelay: options?.retryDelay })
+  const queryResult = await executeQuery<any>(result, { timeout: options?.timeout, retries: options?.retries })
+
+  if (queryResult.error) {
+    throw new DatabaseError(String(queryResult.error), { cause: queryResult.error as Error })
+  }
 
   return {
     data: queryResult.data as T[] | null,
-    error: queryResult.error ? new Error(String(queryResult.error)) : null,
+    error: null,
     count: queryResult.count ?? 0,
   }
 }
@@ -320,14 +291,19 @@ export async function count(
   table: string,
   filters?: FilterCondition[]
 ): Promise<number> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   let query = supabase.from(table).select('*', { count: 'exact', head: true })
 
   if (filters?.length) {
     query = applyFilters(query, filters)
   }
 
-  const result = await executeQuery(query)
+  const result = await executeQuery<any>(query)
+
+  if (result.error) {
+    throw new DatabaseError(String(result.error), { cause: result.error as Error })
+  }
+
   return result.count ?? 0
 }
 
@@ -335,61 +311,40 @@ export async function exists(
   table: string,
   filters: FilterCondition[]
 ): Promise<boolean> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   let query = supabase.from(table).select('id').limit(1)
   query = applyFilters(query, filters)
 
-  const result = await executeQuery(query)
-  return !result.error && (result.data?.length ?? 0) > 0
+  const result = await executeQuery<any>(query)
+
+  if (result.error) {
+    throw new DatabaseError(String(result.error), { cause: result.error as Error })
+  }
+
+  return (result.data?.length ?? 0) > 0
 }
 
-export async function distinct<T extends GenericRow>(
+export async function distinct<T extends GenericRow = GenericRow>(
   table: string,
   columns: string,
   options?: Omit<QueryOptions, 'select'>
 ): Promise<{ data: T[] | null; error: Error | null; count: number }> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const query = supabase.from(table).select(columns, { count: 'exact' })
 
   let result = applyFilters(query, options?.filters ?? [])
   result = applySorting(result, options?.orderBy ?? [])
 
-  const rpcFallback = async () => {
-    const allResult = await fetchAll<GenericRow>(table, {
-      select: columns,
-      filters: options?.filters,
-      timeout: options?.timeout,
-      retries: options?.retries,
-    })
+  const queryResult = await executeQuery<any>(query)
 
-    if (allResult.error || !allResult.data) {
-      return allResult
-    }
-
-    const seen = new Set<string>()
-    const unique: GenericRow[] = []
-
-    for (const row of allResult.data) {
-      const key = columns.split(',').map(c => JSON.stringify(row[c.trim()])).join('|')
-      if (!seen.has(key)) {
-        seen.add(key)
-        unique.push(row)
-      }
-    }
-
-    return { data: unique as T[] | null, error: null, count: unique.length }
+  if (queryResult.error) {
+    throw new DatabaseError(String(queryResult.error), { cause: queryResult.error as Error })
   }
 
-  try {
-    const queryResult = await executeQuery(result, { timeout: options?.timeout, retries: options?.retries })
-
-    if (queryResult.error) {
-      return await rpcFallback() as { data: T[] | null; error: Error | null; count: number }
-    }
-
-    return { data: queryResult.data as T[] | null, error: null, count: queryResult.count ?? 0 }
-  } catch {
-    return await rpcFallback() as { data: T[] | null; error: Error | null; count: number }
+  return {
+    data: queryResult.data as T[] | null,
+    error: null,
+    count: queryResult.count ?? 0,
   }
 }
 
@@ -416,14 +371,14 @@ export async function aggregate(
   const numericAggregates = async (type: 'sum' | 'avg' | 'min' | 'max', columns?: string[]) => {
     if (!columns?.length) return
 
-    const { data, error: fetchError } = await fetchAll<GenericRow>(table, {
+    const { data, error } = await fetchAll<GenericRow>(table, {
       select: columns.join(','),
       filters: options?.filters,
       timeout: options?.timeout,
       retries: options?.retries,
     })
 
-    if (fetchError || !data) return
+    if (error || !data) return
 
     const numericResult = columns.reduce<Record<string, number>>((acc: Record<string, number>, col) => {
       const values = data.map(row => row[col]).filter(v => v !== null && v !== undefined) as number[]
@@ -443,11 +398,7 @@ export async function aggregate(
       return acc
     }, {})
 
-    if (type === 'sum' || type === 'avg') {
-      result[type] = numericResult
-    } else {
-      result[type] = numericResult as Record<string, unknown>
-    }
+    result[type] = numericResult
   }
 
   await Promise.all([
@@ -458,57 +409,4 @@ export async function aggregate(
   ])
 
   return result
-}
-
-export async function createQuery<T extends GenericRow>(
-  table: string,
-  baseOptions?: QueryOptions
-): Promise<{
-  filters: (conditions: FilterCondition[]) => void
-  sort: (orderBy: { column: string; ascending?: boolean }[]) => void
-  paginate: (page: number, pageSize: number) => void
-  execute: () => Promise<{ data: T[] | null; error: Error | null; count: number }>
-  count: () => Promise<number>
-}> {
-  const activeFilters: FilterCondition[] = [...(baseOptions?.filters ?? [])]
-  let activeSort: { column: string; ascending?: boolean }[] = []
-  let activePagination: { page: number; pageSize: number } | null = null
-
-  return {
-    filters: (conditions: FilterCondition[]) => {
-      activeFilters.push(...conditions)
-    },
-    sort: (orderBy: { column: string; ascending?: boolean }[]) => {
-      activeSort = orderBy
-    },
-    paginate: (page: number, pageSize: number) => {
-      activePagination = { page, pageSize }
-    },
-    execute: async () => {
-      const opts: QueryOptions = {
-        select: baseOptions?.select,
-        filters: activeFilters.length > 0 ? activeFilters : undefined,
-        orderBy: activeSort.length > 0 ? activeSort : undefined,
-        useCache: baseOptions?.useCache,
-        ttl: baseOptions?.ttl,
-        timeout: baseOptions?.timeout,
-        retries: baseOptions?.retries,
-        retryDelay: baseOptions?.retryDelay,
-      }
-
-      if (activePagination) {
-        const from = (activePagination.page - 1) * activePagination.pageSize
-        const to = from + activePagination.pageSize - 1
-        opts.range = { from, to }
-      } else if (baseOptions?.limit) {
-        opts.limit = baseOptions.limit
-        if (baseOptions.offset) opts.offset = baseOptions.offset
-      }
-
-      return fetchAll<T>(table, opts)
-    },
-    count: async () => {
-      return count(table, activeFilters.length > 0 ? activeFilters : baseOptions?.filters)
-    },
-  }
 }

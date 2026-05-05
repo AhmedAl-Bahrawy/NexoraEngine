@@ -1,15 +1,13 @@
 export {
-  supabase,
+  getClient as getSupabaseClient,
+  createNexoraClient as createSupabaseClient,
+  isInitialized,
   type SupabaseClient,
   type User,
   type Session,
-  type SupabaseAuthError,
-  type SupabaseConfig,
-  createSupabaseClient,
-  initializeSupabase,
-  getSupabaseClient,
-  isSupabaseInitialized,
-} from './client'
+} from '../core/client'
+
+export type { NexoraConfig as SupabaseConfig } from '../core/client'
 
 export {
   type SignInCredentials,

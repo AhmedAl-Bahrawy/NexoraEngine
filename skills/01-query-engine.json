@@ -1,0 +1,149 @@
+{
+  "id": "nexora.query-engine",
+  "name": "Query Engine",
+  "category": "query",
+  "description": "Nexora Engine's smart query system with automatic caching, deduplication, and TTL-based expiration.",
+  "intent": {
+    "what": "Provides a high-level cached query layer on top of Supabase's native query capabilities. Supports automatic request deduplication, TTL-based caching, and cache invalidation on mutations.",
+    "why": "Reduces redundant database calls, improves response times, and provides a clean API for building complex queries without manual cache management."
+  },
+  "inputs": {
+    "type": "CachedQueryOptions",
+    "properties": {
+      "table": { "type": "string", "required": true, "description": "The database table name" },
+      "columns": { "type": "string", "required": false, "description": "Comma-separated column list" },
+      "filters": {
+        "type": "array",
+        "required": false,
+        "items": {
+          "type": "object",
+          "properties": {
+            "column": { "type": "string" },
+            "operator": { "type": "string", "enum": ["eq", "neq", "gt", "gte", "lt", "lte", "like", "ilike", "in", "is"] },
+            "value": { "type": "any" }
+          }
+        }
+      },
+      "sort": {
+        "type": "array",
+        "required": false,
+        "items": {
+          "type": "object",
+          "properties": {
+            "column": { "type": "string" },
+            "ascending": { "type": "boolean" }
+          }
+        }
+      },
+      "pagination": {
+        "type": "object",
+        "required": false,
+        "properties": {
+          "limit": { "type": "number" },
+          "offset": { "type": "number" }
+        }
+      },
+      "ttl": { "type": "number", "required": false, "description": "TTL in milliseconds" },
+      "bypassCache": { "type": "boolean", "default": false },
+      "timeout": { "type": "number", "required": false },
+      "retries": { "type": "number", "required": false }
+    }
+  },
+  "outputs": {
+    "query": { "type": "array", "description": "Array of records (T[])" },
+    "querySingle": { "type": ["object", "null"], "description": "Single record or null (T | null)" },
+    "queryPaginated": {
+      "type": "object",
+      "properties": {
+        "data": { "type": "array" },
+        "count": { "type": "number" },
+        "page": { "type": "number" },
+        "pageSize": { "type": "number" },
+        "totalPages": { "type": "number" }
+      }
+    },
+    "queryCount": { "type": "number", "description": "Count of matching records" }
+  },
+  "usage": {
+    "steps": [
+      "Import queryEngine from nexora-engine",
+      "Call queryEngine.query() with table name and options",
+      "Results are automatically cached based on query parameters",
+      "Use queryEngine.invalidateTable() to manually clear cache"
+    ],
+    "code_examples": [
+      "const users = await queryEngine.query<User>({ table: 'users', filters: [{ column: 'status', operator: 'eq', value: 'active' }], ttl: 60000 })",
+      "const result = await queryEngine.queryPaginated<User>({ table: 'users', page: 1, pageSize: 20 })",
+      "await queryEngine.create<User>('users', { name: 'John' })"
+    ]
+  },
+  "logic": {
+    "internal_flow": [
+      "Check cache for existing result using derived cache key",
+      "If cached and not expired, return cached data",
+      "If concurrent query exists, deduplicate by returning existing promise",
+      "Execute query against Supabase",
+      "Store result in cache with TTL",
+      "For mutations: invalidate related cache entries automatically"
+    ],
+    "cache_key_derivation": "table + operation + filters + sort + pagination + columns",
+    "deduplication": "Prevents multiple identical in-flight requests",
+    "invalidation": "Mutations call invalidateTable() which clears all cache keys matching the table pattern"
+  },
+  "constraints": {
+    "rules": [
+      "TTL is in milliseconds",
+      "bypassCache true skips cache read but still writes on successful response",
+      "Pagination uses limit and offset internally",
+      "Filters use Supabase filter operators"
+    ],
+    "anti_patterns": [
+      "Don't use for real-time data that changes rapidly",
+      "Don't set very long TTLs for frequently changing data",
+      "Don't call invalidateTable() in rapid succession"
+    ]
+  },
+  "dependencies": {
+    "internal": [
+      "QueryCache (from ./cache/cache)",
+      "deriveCacheKey, deriveMutationKeys (from ./cache/keys)",
+      "fetchAll, fetchById, fetchWhere, fetchPaginated, count (from ./database/queries)"
+    ],
+    "external": ["@supabase/supabase-js"]
+  },
+  "code_mapping": {
+    "query": "QueryEngine.query()",
+    "querySingle": "QueryEngine.querySingle()",
+    "queryPaginated": "QueryEngine.queryPaginated()",
+    "queryCount": "QueryEngine.queryCount()",
+    "create": "QueryEngine.create()",
+    "update": "QueryEngine.update()",
+    "remove": "QueryEngine.remove()",
+    "invalidateTable": "QueryEngine.invalidateTable()",
+    "invalidateAll": "QueryEngine.invalidateAll()"
+  },
+  "ai_instructions": {
+    "when_to_use": [
+      "Use for most read operations that can benefit from caching",
+      "Use for list/detail views in UI applications",
+      "Use for API endpoints serving relatively static data"
+    ],
+    "when_not_to_use": [
+      "Don't use for real-time data (use subscriptions)",
+      "Don't use for mutations directly (use mutation methods)",
+      "Don't use when absolute freshness needed (use bypassCache true)"
+    ],
+    "reasoning_strategy": [
+      "Determine if data can be cached (relatively static?)",
+      "Choose appropriate TTL based on data volatility",
+      "Use query() for lists, querySingle() for single records",
+      "For mutations, use built-in methods to auto-invalidate",
+      "For manual cache control, use invalidateTable() or invalidateAll()"
+    ]
+  },
+  "metadata": {
+    "complexity": "medium",
+    "stability": "stable",
+    "sdk_layer": "query_engine"
+  }
+}

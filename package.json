@@ -1,14 +1,80 @@
 {
-  "name": "supabase-backend-template",
+  "name": "nexora-engine",
   "version": "1.0.0",
-  "description": "A fully generic, production-ready Supabase backend template with smart caching, dynamic queries, and clean architecture.",
+  "description": "Nexora Engine - A universal backend SDK built on Supabase. Build any application without rewriting backend logic.",
   "type": "module",
-  "main": "src/lib/index.ts",
+  "main": "./dist/lib/index.js",
+  "module": "./dist/lib/index.js",
+  "types": "./dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/types/index.d.ts",
+        "default": "./dist/lib/index.js"
+      }
+    },
+    "./core": {
+      "import": {
+        "types": "./dist/types/core/index.d.ts",
+        "default": "./dist/lib/core/index.js"
+      }
+    },
+    "./query": {
+      "import": {
+        "types": "./dist/types/query/index.d.ts",
+        "default": "./dist/lib/query/index.js"
+      }
+    },
+    "./cache": {
+      "import": {
+        "types": "./dist/types/cache/index.d.ts",
+        "default": "./dist/lib/cache/index.js"
+      }
+    },
+    "./validation": {
+      "import": {
+        "types": "./dist/types/validation/index.d.ts",
+        "default": "./dist/lib/validation/index.js"
+      }
+    },
+    "./auth": {
+      "import": {
+        "types": "./dist/types/auth/index.d.ts",
+        "default": "./dist/lib/auth/index.js"
+      }
+    },
+    "./storage": {
+      "import": {
+        "types": "./dist/types/storage/index.d.ts",
+        "default": "./dist/lib/storage/index.js"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "skills"
+  ],
   "scripts": {
     "build": "tsc",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
+  "keywords": [
+    "supabase",
+    "sdk",
+    "backend",
+    "database",
+    "auth",
+    "realtime",
+    "query-builder",
+    "cached-queries",
+    "typescript",
+    "nexora",
+    "nexora-engine"
+  ],
+  "author": "Nexora Team",
+  "license": "MIT",
   "dependencies": {
     "@supabase/supabase-js": "^2.105.1",
     "zod": "^4.4.3"
@@ -20,5 +86,8 @@
     "globals": "^17.5.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.58.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

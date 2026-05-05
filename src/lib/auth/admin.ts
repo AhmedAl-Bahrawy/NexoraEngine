@@ -1,6 +1,5 @@
-import { getSupabaseClient } from './client'
-import { handleSupabaseError } from '../utils/errors'
-import { withRetry } from '../utils/retry'
+import { getClient } from '../core/client'
+import { AuthError } from '../errors/nexora-error'
 import type { User } from '@supabase/supabase-js'
 
 export interface CreateUserParams {
@@ -39,50 +38,42 @@ export interface GenerateLinkOptions {
   redirectTo?: string
 }
 
-async function executeAdminQuery(fn: () => Promise<any>): Promise<any> {
-  return withRetry(async () => {
-    const result = await fn()
-    if (result.error) throw result.error
-    return result
-  }, { retries: 2, delay: 1000 })
-}
-
 export async function createUser(params: CreateUserParams): Promise<User> {
-  const supabase = getSupabaseClient()
-  const result = await executeAdminQuery(
-    () => supabase.auth.admin.createUser({
-      email: params.email,
-      password: params.password,
-      email_confirm: params.emailConfirm ?? true,
-      phone: params.phone,
-      user_metadata: params.userMetadata,
-      app_metadata: params.appMetadata,
-    })
-  )
-  return result.data.user
+  const supabase = getClient()
+  const { data, error } = await supabase.auth.admin.createUser({
+    email: params.email,
+    password: params.password,
+    email_confirm: params.emailConfirm ?? true,
+    phone: params.phone,
+    user_metadata: params.userMetadata,
+    app_metadata: params.appMetadata,
+  })
+
+  if (error) throw AuthError.from(error)
+  return data.user
 }
 
 export async function deleteUser(userId: string): Promise<void> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const { error } = await supabase.auth.admin.deleteUser(userId)
-  if (error) throw handleSupabaseError(error)
+  if (error) throw AuthError.from(error)
 }
 
 export async function getUserById(userId: string): Promise<User> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const { data, error } = await supabase.auth.admin.getUserById(userId)
-  if (error) throw handleSupabaseError(error)
+  if (error) throw AuthError.from(error)
   return data.user
 }
 
 export async function listUsers(options?: { page?: number; perPage?: number }): Promise<ListUsersResult> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const { data, error } = await supabase.auth.admin.listUsers({
     page: options?.page,
     perPage: options?.perPage,
   })
 
-  if (error) throw handleSupabaseError(error)
+  if (error) throw AuthError.from(error)
 
   return {
     users: data.users,
@@ -91,7 +82,7 @@ export async function listUsers(options?: { page?: number; perPage?: number }): 
 }
 
 export async function updateUserById(userId: string, attributes: AdminUpdateParams): Promise<User> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const { data, error } = await supabase.auth.admin.updateUserById(userId, {
     email: attributes.email,
     password: attributes.password,
@@ -103,12 +94,12 @@ export async function updateUserById(userId: string, attributes: AdminUpdatePara
     ban_duration: attributes.banDuration,
   })
 
-  if (error) throw handleSupabaseError(error)
+  if (error) throw AuthError.from(error)
   return data.user
 }
 
 export async function inviteUserByEmail(email: string, options?: InviteOptions): Promise<User> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const redirectUrl = typeof window !== 'undefined' ? window.location.origin : ''
 
   const { data, error } = await supabase.auth.admin.inviteUserByEmail(email, {
@@ -116,7 +107,7 @@ export async function inviteUserByEmail(email: string, options?: InviteOptions):
     data: options?.data,
   })
 
-  if (error) throw handleSupabaseError(error)
+  if (error) throw AuthError.from(error)
   return data.user
 }
 
@@ -125,7 +116,7 @@ export async function generateLink(
   email: string,
   options?: GenerateLinkOptions
 ): Promise<any> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const { data, error } = await (supabase.auth.admin as any).generateLink({
     type,
     email,
@@ -136,6 +127,6 @@ export async function generateLink(
     },
   })
 
-  if (error) throw handleSupabaseError(error)
+  if (error) throw AuthError.from(error)
   return data
 }

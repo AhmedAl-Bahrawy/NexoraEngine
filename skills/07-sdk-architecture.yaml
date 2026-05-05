@@ -1,0 +1,126 @@
+id: nexora.sdk-architecture
+name: SDK Architecture
+category: architecture
+description: Layered SDK design with Core Engine, Query Layer, Optimization Layer, Validation Layer, Error Layer, and Auth Layer.
+intent:
+  what: Defines the architectural layers of Nexora Engine SDK, showing how each layer interacts while maintaining clean separation of concerns.
+  why: Ensures the SDK remains maintainable, extensible, and reusable across any application type.
+
+architecture_layers:
+  core:
+    path: src/lib/core/
+    files: [client.ts, pipeline.ts, retry.ts]
+    purpose: "Supabase client, request pipeline, retry logic"
+  query:
+    path: src/lib/query/ + src/lib/database/
+    files: [queries.ts, mutations.ts, builder.ts, engine.ts]
+    purpose: "Read/write operations, query builder, cached engine"
+  cache:
+    path: src/lib/cache/
+    files: [cache.ts, keys.ts]
+    purpose: "TTL cache, dedup, eviction, key derivation"
+  validation:
+    path: src/lib/validation/
+    files: [schema.ts]
+    purpose: "Zod validation, safeValidate, commonSchemas"
+  errors:
+    path: src/lib/errors/
+    files: [nexora-error.ts]
+    purpose: "Error hierarchy, NexoraError + specialized types"
+  auth:
+    path: src/lib/auth/
+    files: [operations.ts, mfa.ts, admin.ts, middleware.ts]
+    purpose: "Auth operations, MFA, admin, middleware"
+
+inputs:
+  createNexoraClient:
+    type: object
+    required: true
+    properties:
+      url: string
+      anonKey: string
+      serviceRoleKey: string
+      options: object
+
+outputs:
+  sdk_instance:
+    type: object
+    properties:
+      query_layer: "fetchAll, insertOne, queryEngine, ..."
+      auth_layer: "signInWithPassword, enforceAuth, ..."
+      cache_layer: "QueryCache, deriveCacheKey, ..."
+      validation_layer: "validate, commonSchemas, ..."
+      error_layer: "NexoraError, AuthError, ..."
+
+usage:
+  steps:
+    - "Install: npm install nexora-engine"
+    - "Initialize: createNexoraClient(config)"
+    - "Import and use desired layer functions"
+  code_examples:
+    - |
+      import { createNexoraClient, queryEngine } from 'nexora-engine'
+      createNexoraClient({ url, anonKey })
+      const users = await queryEngine.query<User>({ table: 'users' })
+
+logic:
+  internal_flow:
+    - "Core layer initializes Supabase client (singleton)"
+    - "Query layer builds on core client for DB operations"
+    - "Cache layer wraps query layer with TTL caching"
+    - "Validation layer provides Zod schemas"
+    - "Error layer normalizes all errors"
+    - "Auth layer wraps Supabase Auth"
+  dependency_graph: |
+    Public API (index.ts)
+    ├── Core Layer
+    ├── Query Layer (uses Cache Layer)
+    ├── Validation Layer
+    ├── Error Layer
+    └── Auth Layer (uses Core Layer)
+
+constraints:
+  rules:
+    - "No domain-specific logic in any layer"
+    - "No business logic allowed"
+    - "Each layer must be independently composable"
+    - "Internal modules must not be directly exported"
+  anti_patterns:
+    - "Don't import internal paths (use public API)"
+    - "Don't mix layers"
+    - "Don't add application-specific helpers"
+
+dependencies:
+  internal: "All layers are internal; consumers use public API only"
+  external:
+    - "@supabase/supabase-js"
+    - "zod"
+
+code_mapping:
+  public_api: "src/lib/index.ts"
+  core_layer: "src/lib/core/"
+  query_layer: "src/lib/query/ + src/lib/database/"
+  cache_layer: "src/lib/cache/"
+  validation_layer: "src/lib/validation/"
+  error_layer: "src/lib/errors/"
+  auth_layer: "src/lib/auth/"
+
+ai_instructions:
+  when_to_use:
+    - "Use this architecture for any backend SDK built on Supabase"
+    - "Follow layered approach for new features"
+    - "Keep layers independent and composable"
+  when_not_to_use:
+    - "Don't add domain logic to SDK layers"
+    - "Don't bypass layers"
+    - "Don't create circular dependencies"
+  reasoning_strategy:
+    - "Identify which layer the feature belongs to"
+    - "Implement in the appropriate layer"
+    - "Export through public API only"
+    - "Update skills system to match"
+
+metadata:
+  complexity: high
+  stability: stable
+  sdk_layer: architecture

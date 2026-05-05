@@ -4,7 +4,7 @@ export interface KeyComponents {
   filters?: Record<string, unknown>
   sort?: { column: string; ascending: boolean }
   order?: { column: string; ascending: boolean }
-  pagination?: { limit: number; offset: number }
+  pagination?: { limit: number; offset: number } | null
   columns?: string
   extra?: Record<string, unknown>
 }

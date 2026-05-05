@@ -1,4 +1,4 @@
-import { getSupabaseClient } from '../auth/client'
+import { getClient } from '../core/client'
 import { REALTIME } from '../constants/supabase'
 import type { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js'
 
@@ -37,7 +37,7 @@ export function subscribeToTable<T extends Record<string, unknown>>(
   callbacks: SubscriptionCallbacks<T>
 ): SubscriptionHandle {
   const { table, event = '*', filter, schema = 'public' } = config
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
 
   const channelKey = `${schema}.${table}:${event}:${filter ?? ''}`
 
@@ -106,7 +106,7 @@ export function subscribeToTable<T extends Record<string, unknown>>(
 }
 
 export function subscribeToTables<T extends Record<string, unknown>>(
-  configs: Array<{ config: SubscriptionConfig; callbacks: SubscriptionCallbacks<T> }>,
+  configs: Array<{ config: SubscriptionConfig; callbacks: SubscriptionCallbacks<T> }>
 ): Array<SubscriptionHandle> {
   return configs.map(({ config, callbacks }) => subscribeToTable<T>(config, callbacks))
 }
@@ -116,7 +116,7 @@ export function getActiveSubscriptions(): string[] {
 }
 
 export function createBroadcastChannel(channelName: string) {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const channel = supabase.channel(channelName)
 
   return {
@@ -147,7 +147,7 @@ export function createBroadcastChannel(channelName: string) {
 }
 
 export function createPresenceChannel(channelName: string) {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const channel = supabase.channel(channelName)
 
   return {
@@ -201,7 +201,7 @@ export function createPresenceChannel(channelName: string) {
 }
 
 export async function unsubscribe(handle: SubscriptionHandle | RealtimeChannel): Promise<void> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   if ('unsubscribe' in handle) {
     await handle.unsubscribe()
   } else {
@@ -210,7 +210,7 @@ export async function unsubscribe(handle: SubscriptionHandle | RealtimeChannel):
 }
 
 export async function unsubscribeAll(): Promise<void> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const handles = Array.from(activeChannels.values())
   for (const channel of handles) {
     await supabase.removeChannel(channel)

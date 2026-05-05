@@ -1,0 +1,119 @@
+id: nexora.validation-system
+name: Validation System
+category: validation
+description: Zod-based schema validation layer with input sanitization, fail-fast design, and detailed field-level error reporting.
+intent:
+  what: Provides a validation layer using Zod schemas for runtime type checking, input sanitization, and schema-based validation.
+  why: Ensures data integrity, catches errors early (fail-fast), and provides consistent validation patterns across the SDK.
+
+inputs:
+  validate:
+    schema: { type: ZodSchema, required: true }
+    data: { type: unknown, required: true }
+    context: { type: object, required: false }
+  safeValidate:
+    schema: { type: ZodSchema, required: true }
+    data: { type: unknown, required: true }
+  commonSchemas:
+    type: object
+    properties:
+      email: ZodSchema
+      password: ZodSchema
+      uuid: ZodSchema
+      url: ZodSchema
+      phone: ZodSchema
+      nonEmptyString: ZodSchema
+      positiveNumber: ZodSchema
+      pagination: ZodSchema
+      filter: ZodSchema
+
+outputs:
+  validate: "T (validated data, throws on failure)"
+  safeValidate:
+    type: object
+    properties:
+      success: boolean
+      data: "T (if success)"
+      error: "ValidationError (if failure)"
+  ValidationError:
+    type: object
+    properties:
+      message: string
+      code: "validation_error"
+      statusCode: 422
+      fieldErrors: "Record<string, string[]>"
+
+usage:
+  steps:
+    - Import validate, safeValidate, or commonSchemas from nexora-engine
+    - Define or use existing Zod schema
+    - Call validate() or safeValidate()
+    - Handle validation errors appropriately
+  code_examples:
+    - |
+      const validated = validate(commonSchemas.email, 'user@example.com')
+    - |
+      const userSchema = z.object({ name: z.string().min(2), email: commonSchemas.email })
+      const result = safeValidate(userSchema, inputData)
+      if (result.success) { /* use result.data */ }
+    - |
+      const userValidator = createValidator(userSchema)
+      const data = userValidator.validate(input)
+
+logic:
+  internal_flow:
+    - "validate(): schema.parse(data), catch ZodError, transform to ValidationError"
+    - "safeValidate(): schema.parse(data), return success/failure result"
+    - "ValidationError: Contains fieldErrors map with path to messages"
+  execution_reasoning:
+    zod_version: "v4+"
+    validate_behavior: "Throws ValidationError on failure"
+    safeValidate_behavior: "Never throws, returns result object"
+    commonSchemas: "Pre-built schemas for common validations"
+
+constraints:
+  rules:
+    - "Schemas must be Zod schemas (v4)"
+    - "validate() throws ValidationError on failure"
+    - "safeValidate() never throws"
+    - "fieldErrors uses dot notation for nested paths"
+  anti_patterns:
+    - "Don't use any type - define proper schemas"
+    - "Don't validate twice"
+    - "Don't ignore fieldErrors in UI forms"
+
+dependencies:
+  internal:
+    - ValidationError (from ./errors/nexora-error)
+    - createValidator (from ./validation/schema)
+  external:
+    - "zod (v4+)"
+
+code_mapping:
+  validate: "validate()"
+  safeValidate: "safeValidate()"
+  createValidator: "createValidator()"
+  commonSchemas: "commonSchemas object"
+  ValidationError: "ValidationError class"
+
+ai_instructions:
+  when_to_use:
+    - "Use before database insert/update operations"
+    - "Use for API request validation"
+    - "Use for user input sanitization"
+    - "Use commonSchemas for standard fields"
+  when_not_to_use:
+    - "Don't use for Supabase auth (handled internally)"
+    - "Don't use for file validation"
+    - "Don't use as type system replacement"
+  reasoning_strategy:
+    - "Identify data to validate"
+    - "Choose validate() vs safeValidate()"
+    - "Use commonSchemas for standard fields"
+    - "Create custom schemas with Zod"
+    - "Handle fieldErrors in UI"
+
+metadata:
+  complexity: low
+  stability: stable
+  sdk_layer: validation

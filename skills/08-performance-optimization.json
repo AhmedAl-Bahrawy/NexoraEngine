@@ -1,0 +1,125 @@
+{
+  "id": "nexora.performance-optimization",
+  "name": "Performance Optimization Patterns",
+  "category": "optimization",
+  "description": "Performance-first patterns including request deduplication, smart caching, TTL control, and optimized Supabase query patterns.",
+  "intent": {
+    "what": "Provides patterns and utilities for optimizing SDK performance through caching, query optimization, and minimal latency patterns.",
+    "why": "Ensures the SDK delivers fast response times, minimal Supabase calls, and efficient resource usage."
+  },
+  "inputs": {
+    "ttl": { "type": "number", "description": "TTL in milliseconds (default: 5 minutes)" },
+    "request_options": {
+      "type": "object",
+      "properties": {
+        "timeout": { "type": "number", "default": 30000 },
+        "retries": { "type": "number", "default": 3 },
+        "bypassCache": { "type": "boolean", "default": false }
+      }
+    },
+    "cache_config": {
+      "type": "object",
+      "properties": {
+        "defaultTTL": { "type": "number", "default": 300000 },
+        "maxEntries": { "type": "number", "default": 500 }
+      }
+    }
+  },
+  "outputs": {
+    "query_response": {
+      "type": "object",
+      "properties": {
+        "data": "T[] | null",
+        "count": "number",
+        "fromCache": "boolean"
+      }
+    },
+    "cache_stats": {
+      "type": "object",
+      "properties": {
+        "size": "number",
+        "hits": "number",
+        "misses": "number",
+        "hitRate": "number"
+      }
+    }
+  },
+  "usage": {
+    "steps": [
+      "Configure appropriate TTLs based on data volatility",
+      "Use queryEngine for automatic caching and deduplication",
+      "Monitor cache stats to tune performance",
+      "Use bypassCache only when freshness is critical"
+    ],
+    "code_examples": [
+      "const users = await queryEngine.query<User>({ table: 'users', ttl: 60000 })",
+      "const stats = queryEngine.getCacheStats()",
+      "const customCache = new QueryCache({ defaultTTL: 300000 })"
+    ]
+  },
+  "logic": {
+    "internal_flow": [
+      "Request Deduplication: Concurrent identical queries share promise",
+      "Cache-First: Check cache before hitting Supabase",
+      "TTL Expiration: Automatic cleanup of expired entries",
+      "LRU Eviction: Remove 20% of entries when at capacity",
+      "Auto-Invalidation: Mutations invalidate related cache"
+    ],
+    "optimization_strategies": {
+      "hot_data": "Use shorter TTL, let cache handle frequency",
+      "cold_data": "Use longer TTL to avoid unnecessary queries",
+      "deduplication": "Prevents N+1 style duplicate requests",
+      "bulk_operations": "Use insertMany, deleteMany instead of loops"
+    }
+  },
+  "constraints": {
+    "rules": [
+      "TTL must be in milliseconds",
+      "maxEntries triggers eviction at 80% capacity",
+      "Deduplication only works within same event loop tick",
+      "Pagination required for large datasets (>1000 rows)"
+    ],
+    "anti_patterns": [
+      "Don't set TTL=0 (use bypassCache)",
+      "Don't use bypassCache for all queries",
+      "Don't create too many cache instances",
+      "Don't forget to invalidate cache after mutations"
+    ]
+  },
+  "dependencies": {
+    "internal": ["QueryCache", "QueryEngine", "executeRequest"],
+    "external": []
+  },
+  "code_mapping": {
+    "query": "QueryEngine.query()",
+    "getCacheStats": "QueryEngine.getCacheStats()",
+    "set": "QueryCache.set()",
+    "get": "QueryCache.get()",
+    "invalidatePattern": "QueryCache.invalidatePattern()"
+  },
+  "ai_instructions": {
+    "when_to_use": [
+      "Use caching for read-heavy workloads",
+      "Use pagination for large datasets",
+      "Use bypassCache only for real-time data",
+      "Monitor hitRate to tune TTL and maxEntries"
+    ],
+    "when_not_to_use": [
+      "Don't cache highly volatile data (>10 changes/minute)",
+      "Don't use long TTLs for user-specific data",
+      "Don't bypass cache for static reference data"
+    ],
+    "reasoning_strategy": [
+      "Profile: Is this data read frequently? → Cache it",
+      "Measure: What's the data volatility? → Set TTL accordingly",
+      "Monitor: Check hitRate → Tune cache parameters",
+      "Optimize: Use bulk operations over loops",
+      "Validate: Ensure mutations invalidate correctly"
+    ]
+  },
+  "metadata": {
+    "complexity": "medium",
+    "stability": "stable",
+    "sdk_layer": "optimization"
+  }
+}

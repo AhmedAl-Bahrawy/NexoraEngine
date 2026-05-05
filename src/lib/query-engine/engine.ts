@@ -1,7 +1,7 @@
 import { QueryCache } from '../cache/cache'
 import { deriveCacheKey, deriveMutationKeys } from '../cache/keys'
 import { QueryBuilder, createQuery } from './builder'
-import { type Filter, type SortConfig, type PaginationConfig } from './types'
+import type { Filter, SortConfig, PaginationConfig } from './types'
 import type { GenericRow } from '../../types'
 import {
   fetchAll,
@@ -15,6 +15,12 @@ import {
   upsert,
   deleteById,
   deleteWhere,
+  deleteMany,
+  softDelete,
+  restore,
+  bulkInsert,
+  bulkUpdate,
+  runSequential,
   count,
 } from '../database'
 
@@ -43,7 +49,7 @@ export class QueryEngine {
   private pendingQueries: Map<string, Promise<unknown>>
 
   constructor(cache?: QueryCache) {
-    this.cache = cache ?? new QueryCache()
+    this.cache = cache ?? QueryCache.getInstance()
     this.pendingQueries = new Map()
   }
 
@@ -51,9 +57,10 @@ export class QueryEngine {
     return this.cache
   }
 
-  async query<T extends GenericRow = GenericRow>(options: CachedQueryOptions): Promise<T[]> {
+  async query<T>(options: CachedQueryOptions): Promise<T[]> {
     if (options.bypassCache) {
-      return this.executeAndCache<T>(options, true)
+      const result = await this.executeAndCache(options, true)
+      return result as T[]
     }
 
     const cacheKey = this.buildQueryKey(options)
@@ -67,8 +74,8 @@ export class QueryEngine {
       return this.pendingQueries.get(cacheKey) as Promise<T[]>
     }
 
-    const promise = this.executeAndCache<T>(options)
-    this.pendingQueries.set(cacheKey, promise)
+    const promise = this.executeAndCache(options).then(r => r as T[])
+    this.pendingQueries.set(cacheKey, promise as Promise<unknown>)
 
     try {
       const result = await promise
@@ -78,13 +85,13 @@ export class QueryEngine {
     }
   }
 
-  async querySingle<T extends GenericRow = GenericRow>(
+  async querySingle(
     table: string,
     filters: Filter[],
     options?: { columns?: string; ttl?: number; bypassCache?: boolean; timeout?: number; retries?: number }
-  ): Promise<T | null> {
+  ): Promise<unknown | null> {
     if (options?.bypassCache) {
-      return this.fetchSingle<T>(table, filters, options?.columns, options?.timeout, options?.retries)
+      return this.fetchSingle(table, filters, options?.columns, options?.timeout, options?.retries)
     }
 
     const cacheKey = deriveCacheKey({
@@ -94,19 +101,19 @@ export class QueryEngine {
       columns: options?.columns,
     })
 
-    const cached = this.cache.get<T>(cacheKey)
+    const cached = this.cache.get<unknown>(cacheKey)
     if (cached !== null) return cached
 
-    const result = await this.fetchSingle<T>(table, filters, options?.columns, options?.timeout, options?.retries)
+    const result = await this.fetchSingle(table, filters, options?.columns, options?.timeout, options?.retries)
     if (result) {
       this.cache.set(cacheKey, result, options?.ttl)
     }
     return result
   }
 
-  async queryPaginated<T extends GenericRow = GenericRow>(
+  async queryPaginated(
     options: CachedQueryOptions & { page?: number; pageSize?: number }
-  ): Promise<PaginatedResponse<T>> {
+  ): Promise<PaginatedResponse<unknown>> {
     const page = options.page ?? 1
     const pageSize = options.pageSize ?? 20
     const pagination: PaginationConfig = {
@@ -115,7 +122,7 @@ export class QueryEngine {
     }
 
     if (options.bypassCache) {
-      return this.executePaginated<T>({ ...options, pagination }, page, pageSize)
+      return this.executePaginated({ ...options, pagination }, page, pageSize)
     }
 
     const cacheKey = deriveCacheKey({
@@ -123,14 +130,14 @@ export class QueryEngine {
       operation: 'paginated',
       filters: options.filters ? this.filtersToObject(options.filters) : undefined,
       sort: options.sort?.[0] ? { column: options.sort[0].column, ascending: options.sort[0].ascending ?? false } : undefined,
-      pagination: { limit: pagination.limit, offset: pagination.offset ?? 0 },
+      pagination: pagination ? { limit: pagination.limit!, offset: pagination.offset ?? 0 } : undefined,
       columns: options.columns,
     })
 
-    const cached = this.cache.get<PaginatedResponse<T>>(cacheKey)
+    const cached = this.cache.get<PaginatedResponse<unknown>>(cacheKey)
     if (cached !== null) return cached
 
-    const result = await this.executePaginated<T>({ ...options, pagination }, page, pageSize)
+    const result = await this.executePaginated({ ...options, pagination }, page, pageSize)
     this.cache.set(cacheKey, result, options.ttl)
     return result
   }
@@ -158,36 +165,36 @@ export class QueryEngine {
     return result
   }
 
-  async create<T = unknown>(table: string, data: Record<string, unknown>): Promise<T> {
-    const result = await insertOne<T>(table, data)
+  async create(table: string, data: Record<string, unknown>): Promise<unknown> {
+    const result = await insertOne(table, data)
     this.invalidateTable(table)
     return result
   }
 
-  async createMany<T = unknown>(table: string, data: Record<string, unknown>[]): Promise<T[]> {
-    const result = await insertMany<T>(table, data)
+  async createMany(table: string, data: Record<string, unknown>[]): Promise<unknown[]> {
+    const result = await insertMany(table, data)
     this.invalidateTable(table)
     return result
   }
 
-  async update<T = unknown>(table: string, id: string, data: Partial<Record<string, unknown>>): Promise<T> {
-    const result = await updateById<T>(table, id, data)
+  async update(table: string, id: string, data: Partial<Record<string, unknown>>): Promise<unknown> {
+    const result = await updateById(table, id, data)
     this.invalidateTable(table)
     return result
   }
 
-  async updateWhere<T = unknown>(
+  async updateWhere(
     table: string,
     conditions: Record<string, unknown>,
     data: Partial<Record<string, unknown>>
-  ): Promise<T[]> {
-    const result = await updateWhere<T>(table, conditions, data)
+  ): Promise<unknown[]> {
+    const result = await updateWhere(table, conditions, data)
     this.invalidateTable(table)
     return result
   }
 
-  async upsert<T = unknown>(table: string, data: Record<string, unknown>): Promise<T> {
-    const result = await upsert<T>(table, data)
+  async upsert(table: string, data: Record<string, unknown>): Promise<unknown> {
+    const result = await upsert(table, data)
     this.invalidateTable(table)
     return result
   }
@@ -222,28 +229,20 @@ export class QueryEngine {
     return this.cache.getStats()
   }
 
-  createQuery<T = unknown>(table: string): QueryBuilder<T> {
-    return createQuery<T>(table)
+  createQuery(table: string): QueryBuilder {
+    return createQuery(table)
   }
 
-  private async executeAndCache<T extends GenericRow>(options: CachedQueryOptions, bypassCache = false): Promise<T[]> {
-    const dbOptions = {
+  private async executeAndCache(options: CachedQueryOptions, bypassCache = false): Promise<unknown[]> {
+    const result = await fetchAll(options.table, {
       select: options.columns,
-      filters: options.filters?.map(f => ({
-        column: f.column,
-        operator: f.operator as any,
-        value: f.value,
-      })),
+      filters: options.filters,
       orderBy: options.sort?.map(s => ({ column: s.column, ascending: s.ascending })),
       limit: options.pagination?.limit,
       offset: options.pagination?.offset,
-      useCache: !bypassCache,
-      ttl: options.ttl,
       timeout: options.timeout,
       retries: options.retries,
-    }
-
-    const result = await fetchAll<T>(options.table, dbOptions)
+    })
 
     if (!bypassCache && result.data) {
       const cacheKey = this.buildQueryKey(options)
@@ -253,28 +252,20 @@ export class QueryEngine {
     return result.data ?? []
   }
 
-  private async executePaginated<T extends GenericRow>(
+  private async executePaginated(
     options: CachedQueryOptions & { pagination: PaginationConfig },
     page: number,
     pageSize: number
-  ): Promise<PaginatedResponse<T>> {
-    const dbOptions = {
-      select: options.columns,
-      filters: options.filters?.map(f => ({
-        column: f.column,
-        operator: f.operator as any,
-        value: f.value,
-      })),
-      orderBy: options.sort?.map(s => ({ column: s.column, ascending: s.ascending })),
+  ): Promise<PaginatedResponse<unknown>> {
+    const result = await fetchPaginated(options.table, {
       page,
       pageSize,
-      useCache: !options.bypassCache,
-      ttl: options.ttl,
+      filters: options.filters,
+      orderBy: options.sort?.map(s => ({ column: s.column, ascending: s.ascending })),
+      select: options.columns,
       timeout: options.timeout,
       retries: options.retries,
-    }
-
-    const result = await fetchPaginated<T>(options.table, dbOptions)
+    })
 
     return {
       data: result.data ?? [],
@@ -285,13 +276,13 @@ export class QueryEngine {
     }
   }
 
-  private async fetchSingle<T extends GenericRow>(
+  private async fetchSingle(
     table: string,
     filters: Filter[],
     columns?: string,
     timeout?: number,
     retries?: number
-  ): Promise<T | null> {
+  ): Promise<unknown | null> {
     const conditions: Record<string, unknown> = {}
     for (const f of filters) {
       if (f.operator === 'eq') {
@@ -300,7 +291,7 @@ export class QueryEngine {
     }
 
     if (Object.keys(conditions).length === 1 && conditions.id) {
-      const result = await fetchById<T>(table, conditions.id as string, {
+      const result = await fetchById(table, conditions.id as string, {
         select: columns,
         timeout,
         retries,
@@ -308,13 +299,7 @@ export class QueryEngine {
       return result.data
     }
 
-    const filterConditions = Object.entries(conditions).map(([column, value]) => ({
-      column,
-      operator: 'eq' as const,
-      value,
-    }))
-
-    const results = await fetchWhere<T>(table, filterConditions, {
+    const results = await fetchWhere(table, filters, {
       select: columns,
       limit: 1,
       timeout,
@@ -330,13 +315,7 @@ export class QueryEngine {
     timeout?: number,
     retries?: number
   ): Promise<number> {
-    const dbFilters = filters?.map(f => ({
-      column: f.column,
-      operator: f.operator as any,
-      value: f.value,
-    }))
-
-    return count(table, dbFilters)
+    return count(table, filters)
   }
 
   private buildQueryKey(options: CachedQueryOptions): string {
@@ -345,7 +324,7 @@ export class QueryEngine {
       operation: 'query',
       filters: options.filters ? this.filtersToObject(options.filters) : undefined,
       sort: options.sort?.[0] ? { column: options.sort[0].column, ascending: options.sort[0].ascending ?? false } : undefined,
-      pagination: options.pagination ? { limit: options.pagination.limit, offset: options.pagination.offset ?? 0 } : undefined,
+      pagination: options.pagination ? { limit: options.pagination.limit!, offset: options.pagination.offset ?? 0 } : undefined,
       columns: options.columns,
     })
   }

@@ -1,6 +1,6 @@
-# Supabase Backend Template
+# Nexora Engine
 
-> A fully generic, production-ready Supabase backend template. Zero domain assumptions. Reusable across any project.
+> A universal backend SDK built on Supabase. Build any application (SaaS, task systems, academy platforms, marketplaces) without rewriting backend logic.
 
 ## Features
 
@@ -10,52 +10,65 @@
 - **Realtime** - Postgres change subscriptions, cross-tab broadcast, presence tracking
 - **Storage** - File upload, download, signed URLs, validation, and management
 - **Error Handling** - Centralized error classes, type guards, consistent responses
-- **Validation** - Input validation, file validators, pagination guards
+- **Validation** - Zod-based schema validation, input sanitization
 - **Retry Logic** - Exponential backoff retry with configurable attempts and delays
 - **Timeout Handling** - AbortController-based timeout for all queries and mutations
 - **Rate Limiting** - Configurable rate limiter with window-based tracking
+- **Caching Layer** - TTL-based cache with smart invalidation and stale-while-revalidate
 - **TypeScript** - Full type safety throughout the entire codebase
+- **AI-Ready** - Full skills system with Markdown, YAML, and JSON knowledge bases
 
 ## Quick Start
 
 ```bash
 # 1. Install dependencies
-npm install
+npm install nexora-engine
 
 # 2. Configure environment
 # Create .env with your Supabase credentials:
 # VITE_SUPABASE_URL=https://your-project.supabase.co
 # VITE_SUPABASE_ANON_KEY=your-anon-key
 
-# 3. Build
-npm run build
-
-# 4. Type check
-npm run typecheck
+# 3. Initialize the client
 ```
 
 ## Architecture
 
-```
-src/lib/
-├── auth/           Authentication: client, operations, MFA, admin, middleware
-├── database/       Database: queries, mutations, realtime
-├── storage/        Storage: upload, download, delete, URLs
-├── cache/          Smart caching: TTL, key derivation, deduplication
-├── query-engine/   Query system: builder, engine, composition
-├── utils/          Utilities: errors, retry, validate, rate-limit, validators
-├── constants/      Configuration constants
-└── index.ts        Master barrel export
+Nexora Engine is structured as a layered SDK:
 
-skills/             AI knowledge base for autonomous operation
+```
+nexora-engine/
+├── src/lib/
+│   ├── core/           Core Engine Layer: Supabase client, request pipeline
+│   ├── query/          Query Layer: dynamic builder, CRUD abstraction
+│   ├── cache/          Optimization Layer: TTL cache, deduplication
+│   ├── validation/     Validation Layer: Zod schemas, input sanitization
+│   ├── auth/           Auth Layer: generic auth, session handling
+│   ├── errors/         Error Layer: unified error format, safe exposure
+│   ├── storage/        Storage: upload, download, delete, URLs
+│   ├── types/          TypeScript type definitions
+│   └── index.ts        Master barrel export
+├── skills/             AI knowledge base (MD + YAML + JSON)
+└── docs/               Documentation
 ```
 
 ## Usage
 
+### Initialize Client
+
+```typescript
+import { createClient } from 'nexora-engine'
+
+const client = createClient({
+  url: process.env.VITE_SUPABASE_URL!,
+  anonKey: process.env.VITE_SUPABASE_ANON_KEY!,
+})
+```
+
 ### Direct Database Operations
 
 ```typescript
-import { fetchAll, fetchById, insertOne, updateById, deleteById } from '@/lib'
+import { fetchAll, fetchById, insertOne, updateById, deleteById } from 'nexora-engine'
 
 // Fetch with retry and timeout
 const users = await fetchAll<User>('users', { timeout: 5000, retries: 3 })
@@ -81,7 +94,7 @@ await deleteById('users', 'user-id')
 ### Query Builder (Composable)
 
 ```typescript
-import { createQuery } from '@/lib'
+import { createQuery } from 'nexora-engine'
 
 const query = await createQuery<User>('users')
 query.filters([{ column: 'status', operator: 'eq', value: 'active' }])
@@ -93,7 +106,7 @@ const { data, count } = await query.execute()
 ### Query Engine (Cached)
 
 ```typescript
-import { queryEngine } from '@/lib'
+import { queryEngine } from 'nexora-engine'
 
 // Cached query (auto-deduplicates concurrent calls)
 const users = await queryEngine.query<User>({
@@ -117,7 +130,7 @@ queryEngine.invalidateAll()
 ### Authentication
 
 ```typescript
-import { signInWithPassword, signUp, signOut, getUser, enforceAuth } from '@/lib'
+import { signInWithPassword, signUp, signOut, getUser, enforceAuth } from 'nexora-engine'
 
 // Sign in
 const { user, session } = await signInWithPassword({ email, password })
@@ -136,7 +149,7 @@ const ctx = await enforceAuth({ requireRole: 'admin' })
 ### Realtime
 
 ```typescript
-import { subscribeToTable, unsubscribe } from '@/lib'
+import { subscribeToTable, unsubscribe } from 'nexora-engine'
 
 const channel = subscribeToTable<User>(
   { table: 'users', event: '*' },
@@ -154,7 +167,7 @@ await unsubscribe(channel)
 ### Storage
 
 ```typescript
-import { uploadFile, getPublicUrl, downloadFile, deleteFile } from '@/lib'
+import { uploadFile, getPublicUrl, downloadFile, deleteFile } from 'nexora-engine'
 
 // Upload with validation
 const { path } = await uploadImage('bucket', 'avatars/user.jpg', file)
@@ -168,6 +181,25 @@ const blob = await downloadFile('bucket', path)
 // Delete
 await deleteFile('bucket', path)
 ```
+
+## AI Skills System
+
+Nexora Engine includes a comprehensive AI-installable knowledge system:
+
+```
+skills/
+├── query-engine.md      Markdown documentation
+├── query-engine.yaml    YAML AI reasoning format
+├── query-engine.json    JSON machine-readable format
+├── crud.md / .yaml / .json
+├── caching.md / .yaml / .json
+├── validation.md / .yaml / .json
+├── auth.md / .yaml / .json
+├── errors.md / .yaml / .json
+└── architecture.md / .yaml / .json
+```
+
+Each skill defines: id, name, category, description, intent, inputs, outputs, usage, logic, constraints, dependencies, code_mapping, and ai_instructions.
 
 ## Documentation
 
@@ -192,7 +224,7 @@ npm run lint        # Run ESLint
 | Package | Purpose |
 |---------|---------|
 | `@supabase/supabase-js` | Supabase client |
-| `@types/node` | Node.js type definitions |
+| `zod` | TypeScript-first schema validation |
 
 ## License
 

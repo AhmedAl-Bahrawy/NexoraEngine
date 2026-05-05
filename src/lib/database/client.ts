@@ -1,1 +1,1 @@
-export { supabase, getSupabaseClient, type SupabaseClient } from '../auth/client'
+export { getClient as getSupabaseClient, type SupabaseClient } from '../core/client'

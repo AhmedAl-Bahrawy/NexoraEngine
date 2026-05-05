@@ -1,4 +1,4 @@
-import { DatabaseError } from '../utils/errors'
+import { RateLimitError } from '../errors/nexora-error'
 
 export interface RateLimitConfig {
   windowMs: number
@@ -43,9 +43,8 @@ export class RateLimiter {
     const remaining = Math.max(0, this.config.maxRequests - entry.count)
 
     if (!allowed) {
-      throw new DatabaseError(
-        this.config.message ?? `Rate limit exceeded. Try again in ${Math.ceil((entry.resetAt - now) / 1000)}s`,
-        'rate_limit'
+      throw new RateLimitError(
+        this.config.message ?? `Rate limit exceeded. Try again in ${Math.ceil((entry.resetAt - now) / 1000)}s`
       )
     }
 

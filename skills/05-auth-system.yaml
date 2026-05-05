@@ -1,0 +1,124 @@
+id: nexora.auth-system
+name: Auth System
+category: auth
+description: Generic authentication utilities with session handling abstraction, extensible permission system, and no role assumptions.
+intent:
+  what: Provides a complete authentication layer on top of Supabase Auth, including sign-up/sign-in, OAuth, MFA, admin operations, and middleware.
+  why: Abstracts Supabase Auth into a clean, reusable API with proper error handling, session management, and extensible middleware.
+
+inputs:
+  signInWithPassword:
+    type: object
+    required: true
+    properties:
+      email: string
+      password: string
+  signUp:
+    type: object
+    required: true
+    properties:
+      email: string
+      password: string
+      metadata: "Record<string, unknown> (optional)"
+  enforceAuth:
+    type: object
+    required: false
+    properties:
+      requireRole: string
+      requireAny: array
+      requireVerified: boolean
+
+outputs:
+  AuthResult:
+    type: object
+    properties:
+      user: "User | null"
+      session: "Session | null"
+  enforceAuth:
+    type: object
+    properties:
+      user: User
+      userId: string
+      email: string
+      role: "string | null"
+      session: Session
+  getUser: "User | null"
+
+usage:
+  steps:
+    - Import auth functions from nexora-engine
+    - Initialize client with Supabase credentials
+    - Call auth functions as needed
+  code_examples:
+    - |
+      const { user, session } = await signInWithPassword({
+        email: 'user@example.com', password: 'password123'
+      })
+    - |
+      const ctx = await enforceAuth({ requireRole: 'admin' })
+      // ctx.user, ctx.userId available
+    - |
+      const { url } = await signInWithOAuth({ provider: 'google' })
+
+logic:
+  internal_flow:
+    - "Get Supabase client from core layer"
+    - "Call Supabase Auth methods"
+    - "Handle errors and transform to AuthError"
+    - "Return normalized result"
+  execution_reasoning:
+    enforceAuth: "Checks session, then applies role/verification rules"
+    mfa: "Manages TOTP lifecycle (enroll, challenge, verify)"
+    admin: "Uses service role client when available"
+
+constraints:
+  rules:
+    - "Email must be valid format"
+    - "Password must meet requirements (min 8 chars)"
+    - "OAuth provider must be supported"
+    - "enforceAuth() throws AuthError (401/403) on failure"
+  anti_patterns:
+    - "Don't store passwords in plain text"
+    - "Don't skip email verification for sensitive apps"
+    - "Don't use admin operations without service role key"
+
+dependencies:
+  internal:
+    - getClient (from ./core/client)
+    - AuthError (from ./errors/nexora-error)
+    - executeRequest (from ./core/pipeline)
+  external:
+    - "@supabase/supabase-js"
+
+code_mapping:
+  signInWithPassword: "signInWithPassword()"
+  signUp: "signUp()"
+  signOut: "signOut()"
+  getUser: "getUser()"
+  enforceAuth: "enforceAuth()"
+  signInWithOAuth: "signInWithOAuth()"
+  enrollTOTP: "enrollTOTP()"
+  challengeMFA: "challengeMFA()"
+  verifyMFA: "verifyMFA()"
+
+ai_instructions:
+  when_to_use:
+    - "Use for user authentication flows"
+    - "Use enforceAuth() to protect API routes"
+    - "Use MFA functions for enhanced security"
+    - "Use admin functions for user management"
+  when_not_to_use:
+    - "Don't use for database operations"
+    - "Don't use for file storage"
+    - "Don't bypass enforceAuth() for protected routes"
+  reasoning_strategy:
+    - "Determine auth flow needed (password, OAuth, magic link)"
+    - "Use enforceAuth() for route protection"
+    - "Check getUser() for session state"
+    - "Use MFA for sensitive operations"
+    - "Handle AuthError with appropriate HTTP status"
+
+metadata:
+  complexity: medium
+  stability: stable
+  sdk_layer: auth

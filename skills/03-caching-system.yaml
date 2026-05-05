@@ -1,0 +1,106 @@
+id: nexora.caching-system
+name: Caching System
+category: optimization
+description: TTL-based smart caching layer with automatic invalidation, request deduplication, and stale-while-revalidate strategy.
+intent:
+  what: Provides a generic caching layer for database queries with configurable TTL, automatic invalidation on mutations, and request deduplication for concurrent calls.
+  why: Reduces database load, improves response times, and provides a clean abstraction for cache management without manual key tracking.
+
+inputs:
+  QueryCache:
+    defaultTTL:
+      type: number
+      default: 300000
+      description: "Default TTL in milliseconds (5 minutes)"
+    maxEntries:
+      type: number
+      default: 500
+      description: "Maximum cache entries before eviction"
+  set:
+    key: { type: string, required: true }
+    data: { type: any, required: true }
+    ttl: { type: number, required: false }
+  invalidatePattern:
+    pattern: { type: "string_or_regexp", required: true }
+
+outputs:
+  get: "T | null"
+  getStats:
+    type: object
+    properties:
+      size: number
+      hits: number
+      misses: number
+      hitRate: number
+  keys: "string[]"
+
+usage:
+  steps:
+    - Import QueryCache from nexora-engine
+    - Create cache instance or use getInstance() for singleton
+    - Use get() to retrieve and set() to store
+    - Use invalidate() or invalidatePattern() to clear entries
+  code_examples:
+    - |
+      const cache = new QueryCache({ defaultTTL: 600000, maxEntries: 1000 })
+      cache.set('users:active', data, 60000)
+    - |
+      const data = cache.get<User[]>('users:active')
+      if (data) { /* use cached */ }
+    - |
+      cache.invalidatePattern('users:')
+      const stats = cache.getStats()
+
+logic:
+  internal_flow:
+    - "get(): Check store, verify not expired, increment hits, return data"
+    - "set(): Evict old entries if at max, store with expiration"
+    - "invalidatePattern(): Iterate keys, match pattern, delete matches"
+    - "Eviction: Remove 20% of entries when at capacity"
+  execution_reasoning:
+    ttl_storage: "Absolute timestamp (Date.now() + ttl)"
+    entry_tracking: "createdAt, expiresAt, hits"
+    deduplication: "Happens at QueryEngine level"
+
+constraints:
+  rules:
+    - "TTL is in milliseconds"
+    - "maxEntries triggers eviction when exceeded"
+    - "Eviction removes 20% of entries (soonest to expire)"
+  anti_patterns:
+    - "Don't store large objects"
+    - "Don't use very short TTLs (< 1 second)"
+    - "Don't use overly broad invalidation patterns"
+
+dependencies:
+  internal: []
+  external: []
+
+code_mapping:
+  QueryCache: "QueryCache class"
+  getInstance: "QueryCache.getInstance()"
+  get: "QueryCache.get()"
+  set: "QueryCache.set()"
+  invalidate: "QueryCache.invalidate()"
+  invalidatePattern: "QueryCache.invalidatePattern()"
+  getStats: "QueryCache.getStats()"
+
+ai_instructions:
+  when_to_use:
+    - "Use for caching database query results"
+    - "Use for expensive computed values"
+    - "Use for API responses that don't change frequently"
+  when_not_to_use:
+    - "Don't use for real-time data streams"
+    - "Don't use for sensitive data"
+    - "Don't use as primary data store"
+  reasoning_strategy:
+    - "Determine appropriate TTL based on data volatility"
+    - "Use specific string patterns for invalidation"
+    - "Monitor cache stats to tune maxEntries and TTL"
+    - "For query caching, prefer queryEngine (handles automatically)"
+
+metadata:
+  complexity: low
+  stability: stable
+  sdk_layer: cache

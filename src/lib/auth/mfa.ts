@@ -1,6 +1,5 @@
-import { getSupabaseClient } from './client'
-import { handleSupabaseError } from '../utils/errors'
-import { withRetry } from '../utils/retry'
+import { getClient } from '../core/client'
+import { AuthError } from '../errors/nexora-error'
 import type { Factor } from '@supabase/supabase-js'
 
 export interface MFAEnrollResult {
@@ -18,39 +17,30 @@ export interface MFAVerifyResult {
   refreshToken: string
 }
 
-async function executeMfaQuery(fn: () => Promise<any>): Promise<any> {
-  return withRetry(async () => {
-    const result = await fn()
-    if (result.error) throw result.error
-    return result
-  }, { retries: 2, delay: 1000 })
-}
-
 export async function enrollTOTP(friendlyName = 'Authenticator App'): Promise<MFAEnrollResult> {
-  const supabase = getSupabaseClient()
-  const result = await executeMfaQuery(
-    () => supabase.auth.mfa.enroll({
-      factorType: 'totp',
-      friendlyName,
-    })
-  )
+  const supabase = getClient()
+  const { data, error } = await supabase.auth.mfa.enroll({
+    factorType: 'totp',
+    friendlyName,
+  })
+
+  if (error) throw AuthError.from(error)
 
   return {
-    id: result.data.id,
+    id: data.id,
     type: 'totp',
-    friendlyName: result.data.friendly_name ?? 'Authenticator App',
-    qrCode: result.data.totp.qr_code,
-    secret: result.data.totp.secret,
-    uri: result.data.totp.uri,
+    friendlyName: data.friendly_name ?? 'Authenticator App',
+    qrCode: data.totp.qr_code,
+    secret: data.totp.secret,
+    uri: data.totp.uri,
   }
 }
 
 export async function challengeMFA(factorId: string): Promise<{ id: string; expires_at: number }> {
-  const supabase = getSupabaseClient()
-  const result = await executeMfaQuery(
-    () => supabase.auth.mfa.challenge({ factorId })
-  )
-  return result.data
+  const supabase = getClient()
+  const { data, error } = await supabase.auth.mfa.challenge({ factorId })
+  if (error) throw AuthError.from(error)
+  return data
 }
 
 export async function verifyMFA(
@@ -58,25 +48,25 @@ export async function verifyMFA(
   code: string,
   challengeId?: string
 ): Promise<MFAVerifyResult> {
-  const supabase = getSupabaseClient()
-  const result = await executeMfaQuery(
-    () => (supabase.auth.mfa as any).verify({ factorId, code, challengeId })
-  )
+  const supabase = getClient()
+  const { data, error } = await (supabase.auth.mfa as any).verify({ factorId, code, challengeId })
+
+  if (error) throw AuthError.from(error)
 
   return {
     user: {
-      id: result.data.user.id,
-      factors: result.data.user.factors ?? [],
+      id: data.user.id,
+      factors: data.user.factors ?? [],
     },
-    accessToken: result.data.access_token,
-    refreshToken: result.data.refresh_token,
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token,
   }
 }
 
 export async function unenrollMFA(factorId: string): Promise<void> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const { error } = await supabase.auth.mfa.unenroll({ factorId })
-  if (error) throw handleSupabaseError(error)
+  if (error) throw AuthError.from(error)
 }
 
 export async function listMFAFactors(): Promise<{
@@ -84,9 +74,9 @@ export async function listMFAFactors(): Promise<{
   totp: Factor[]
   phone: Factor[]
 }> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const { data, error } = await supabase.auth.mfa.listFactors()
-  if (error) throw handleSupabaseError(error)
+  if (error) throw AuthError.from(error)
 
   return {
     all: [...(data.totp ?? []), ...(data.phone ?? [])],
@@ -100,9 +90,9 @@ export async function getAuthenticatorAssuranceLevel(): Promise<{
   nextLevel: 'aal1' | 'aal2' | null
   currentAuthenticationMethods: Array<{ method: string; timestamp: number }>
 }> {
-  const supabase = getSupabaseClient()
+  const supabase = getClient()
   const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
-  if (error) throw handleSupabaseError(error)
+  if (error) throw AuthError.from(error)
 
   return {
     currentLevel: data.currentLevel,

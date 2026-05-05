@@ -1,5 +1,5 @@
-import { getSession, getUser } from '../auth/operations'
-import { AuthError, ForbiddenError } from '../utils/errors'
+import { getSession, getUser } from './operations'
+import { AuthError, ForbiddenError } from '../errors/nexora-error'
 import type { User, Session } from '@supabase/supabase-js'
 
 export interface AuthContext {
@@ -21,30 +21,30 @@ export async function enforceAuth(options?: AuthMiddlewareOptions): Promise<Auth
   const session = await getSession()
 
   if (!session) {
-    throw new AuthError('No active session', 'unauthorized')
+    throw new AuthError('No active session', { details: { code: 'unauthorized' } })
   }
 
   const user = await getUser()
 
   if (!user) {
-    throw new AuthError('User not found', 'unauthorized')
+    throw new AuthError('User not found', { details: { code: 'unauthorized' } })
   }
 
   if (options?.requireEmail && !user.email) {
-    throw new AuthError('Email verification required', 'forbidden')
+    throw new AuthError('Email verification required', { details: { code: 'forbidden' } })
   }
 
   if (options?.requireRole) {
     const userRole = user.user_metadata?.role as string
     if (userRole !== options.requireRole) {
-      throw new ForbiddenError(`Requires role: ${options.requireRole}`)
+      throw new ForbiddenError(`Requires role: ${options.requireRole}`, { details: { requiredRole: options.requireRole, userRole } })
     }
   }
 
   if (options?.allowedRoles?.length) {
     const userRole = user.user_metadata?.role as string
     if (!options.allowedRoles.includes(userRole)) {
-      throw new ForbiddenError(`Requires one of roles: ${options.allowedRoles.join(', ')}`)
+      throw new ForbiddenError(`Requires one of roles: ${options.allowedRoles.join(', ')}`, { details: { allowedRoles: options.allowedRoles, userRole } })
     }
   }
 
